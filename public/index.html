@@ -436,14 +436,22 @@ function noise(dur,freq,gain,delay=0){if(!AC||!SOUND)return;try{const n=Math.flo
 function tone(fr,dur,gain,delay=0,type='sine'){if(!AC||!SOUND)return;try{const o=AC.createOscillator();o.type=type;o.frequency.value=fr;const g=AC.createGain();const t=AC.currentTime+delay;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(gain,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g).connect(AC.destination);o.start(t);o.stop(t+dur+.05);}catch(e){}}
 // ----- voz (síntese de fala do aparelho, pt-BR)
 let VOICE=LS.get('truco_voz')!=='0',ptVoices=[],voiceUnlocked=false;
-function loadVoices(){try{const all=speechSynthesis.getVoices();ptVoices=all.filter(v=>/^pt(-|_)BR/i.test(v.lang));if(!ptVoices.length)ptVoices=all.filter(v=>/^pt/i.test(v.lang));}catch(e){}}
+// vozes masculinas conhecidas (Windows/Edge, Android, iPhone/Mac, Chrome)
+const MALE_RE=/daniel|antonio|ant[oô]nio|felipe|f[aá]bio|humberto|julio|j[uú]lio|donato|valerio|val[eé]rio|nicolau|macerio|leandro|giovanni|ricardo|eduardo|pt-br-x-ptd|pt-br-x-pte|ptd|pte|\bmale\b|masculin|homem|man\b/i;
+const FEMALE_RE=/maria|francisca|thalita|luciana|helo[ií]sa|camila|vit[oó]ria|yara|leila|brenda|elza|manuela|female|feminin|mulher|afs|ptc/i;
+let maleVoice=null;
+function loadVoices(){try{const all=speechSynthesis.getVoices();ptVoices=all.filter(v=>/^pt(-|_)BR/i.test(v.lang));if(!ptVoices.length)ptVoices=all.filter(v=>/^pt/i.test(v.lang));
+ maleVoice=ptVoices.find(v=>MALE_RE.test(v.name)&&!FEMALE_RE.test(v.name))||null;}catch(e){}}
 if(window.speechSynthesis){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}}
 function unlockVoice(){if(voiceUnlocked||!window.speechSynthesis)return;voiceUnlocked=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='pt-BR';speechSynthesis.speak(u);}catch(e){}}
+// gritos: texto, velocidade (menor = mais arrastado) e tom (menor = mais grave)
+const CALLS={
+ 'TRUCO!':[['Truuuuuco!',.62],['Truuuuuco!',.62],['Truuuuuco, ladrão!',.7],['Truuuuuco, marreco!',.7]],
+ 'SEIS!':[['Seis!',.62],['Seis!',.62],['Seis, papudo!',.72]],
+ 'NOVE!':[['Nove!',.62],['Nove!',.62],['Nove, que eu tenho!',.72]],
+ 'DOZE!':[['Doze!',.62],['Doze, valendo o jogo!',.72]]
+};
 const PHRASES={
- 'TRUCO!':['Truco!','Truco, ladrão!','Truuuco!','Truco, marreco!','Pede truco, sim!'],
- 'SEIS!':['Seis!','Seis, papudo!','Toma seis!','Seis, seu mentiroso!'],
- 'NOVE!':['Nove!','Nove, que eu tenho!','Vai nove!'],
- 'DOZE!':['Doze!','Doze, valendo o jogo!','Doze, e sai da mesa!'],
  'Aceito!':['Cai dentro!','Aceito!','Desce!','Manda que eu aguento!'],
  'Corro!':['Corro!','Tô fora!','Corri!'],
  'Vamos jogar!':['Vamos jogar!','Bora!'],
@@ -455,13 +463,19 @@ const PHRASES={
 };
 function say(key,seat){
  if(!VOICE||!SOUND||!window.speechSynthesis)return;
- const opts=PHRASES[key];if(!opts)return;
+ if(!ptVoices.length)loadVoices();
+ let txt,rate=1.02,pitch;
+ const call=CALLS[key];
+ if(call){const c=call[Math.floor(Math.random()*call.length)];txt=c[0];rate=c[1];}
+ else{const o=PHRASES[key];if(!o)return;txt=o[Math.floor(Math.random()*o.length)];}
+ // voz de homem: usa uma voz masculina se o aparelho tiver; senão engrossa a voz disponível
+ const male=!!maleVoice;
+ const grave=[0,.06,-.05,.1][(seat>=0?seat:0)%4];
+ pitch=call?(male?.75:.45):(male?.9:.6);pitch=Math.max(.1,pitch-grave);
  try{
-  const txt=opts[Math.floor(Math.random()*opts.length)];
   const u=new SpeechSynthesisUtterance(txt);u.lang='pt-BR';
-  if(ptVoices.length)u.voice=ptVoices[(seat>=0?seat:0)%ptVoices.length];
-  const pitch=[1.0,0.75,1.3,0.9],big=/^(TRUCO|SEIS|NOVE|DOZE)/.test(key);
-  u.pitch=seat>=0?pitch[seat%4]:1;u.rate=big?1.12:1.02;u.volume=1;
+  if(maleVoice)u.voice=maleVoice;else if(ptVoices.length)u.voice=ptVoices[0];
+  u.pitch=pitch;u.rate=rate;u.volume=1;
   speechSynthesis.cancel();speechSynthesis.speak(u);
  }catch(e){}
 }
