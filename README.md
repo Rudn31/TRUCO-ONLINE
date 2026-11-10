@@ -1,6 +1,6 @@
 # Truco Paulista Online
 
-Truco para 4 jogadores (2 duplas), no navegador do celular ou do computador.
+Truco no navegador do celular ou do computador: **2x2** (4 jogadores em duplas) ou **1x1** (mano a mano), com voz gritando "Truco!".
 
 - **Partida rápida**: entra na fila por ordem de chegada; a cada 4 jogadores abre uma mesa.
 - **Mesa privada**: cria uma mesa com código para jogar com os amigos.

@@ -135,6 +135,7 @@ html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscr
 .qsep{font-size:11px;letter-spacing:.12em;opacity:.6;margin:10px 0 2px;text-align:left}
 .dots::after{content:'';animation:dots 1.4s steps(4) infinite}
 @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
+.modes{display:flex;gap:8px;margin-top:12px}.mode{flex:1;font:800 20px 'Playfair Display',serif;color:#f5ecd9;background:rgba(0,0,0,.4);border:1px solid rgba(231,196,106,.3);border-radius:12px;padding:8px 6px;cursor:pointer}.mode small{display:block;font:600 11px Inter,sans-serif;opacity:.75;margin-top:2px}.mode.on{background:linear-gradient(rgba(231,196,106,.3),rgba(231,196,106,.12));border-color:#ffd56a;color:#ffe7a6;box-shadow:0 0 14px rgba(255,213,106,.25)}
 details.rules{text-align:left;margin-top:12px;font-size:12.5px;background:rgba(0,0,0,.3);border-radius:10px;padding:8px 12px}
 details.rules summary{cursor:pointer;font-weight:700}
 details.rules li{margin:3px 0}
@@ -165,6 +166,7 @@ details.rules li{margin:3px 0}
   <div class="suits">♣<span class="r">♥</span>♠<span class="r">♦</span></div>
   <label for="nick">Seu apelido</label>
   <input id="nick" maxlength="14" placeholder="Ex.: Zé do Truco" autocomplete="off">
+  <div class="modes"><button id="m4" class="mode">2x2<small>4 jogadores · duplas</small></button><button id="m2" class="mode">1x1<small>2 jogadores · mano a mano</small></button></div>
   <button id="bQuick" class="btn hot" disabled>⚡ Partida rápida</button>
   <div class="note" id="qcount" style="margin-top:6px"></div>
   <button id="bCreate" class="btn ghost" disabled>Criar mesa privada (com código)</button>
@@ -219,21 +221,22 @@ function tm(){let t=TM.get(G);if(!t){t={};TM.set(G,t);}return t;}
 function clearTimers(){const t=G&&TM.get(G);if(t){clearTimeout(t.h);clearTimeout(t.b);t.b=0;}}
 let isAway=()=>false;
 let onChange=()=>{};
-function newGame(code,me,name){
- return {code,phase:'wait',seats:[{cid:me,n:name,bot:0},0,0,0],score:[0,0],wins:[0,0],dealer:rnd(4),hands:[[],[],[],[]],vira:'',turn:0,round:0,table:[],past:[],rounds:[],value:1,lastRaise:-1,pending:0,m11:0,ferro:0,shout:0,shoutN:0,res:0,hno:0,ack:{},win:-1,ns:0,lastN:{},seq:0};
+const NP=()=>G.seats.length;
+function newGame(code,me,name,n){n=n===2?2:4;const seats=[{cid:me,n:name,bot:0}];while(seats.length<n)seats.push(0);
+ return {code,phase:'wait',seats,score:[0,0],wins:[0,0],dealer:rnd(n),hands:seats.map(()=>[]),vira:'',turn:0,round:0,table:[],past:[],rounds:[],value:1,lastRaise:-1,pending:0,m11:0,ferro:0,shout:0,shoutN:0,res:0,hno:0,ack:{},win:-1,ns:0,lastN:{},seq:0};
 }
 function shout(s,t){G.shoutN++;G.shout={s,t,id:G.shoutN};}
 function later(ms,fn){const g=G,t=tm();clearTimeout(t.h);t.h=setTimeout(()=>{G=g;fn();},ms);}
 function deal(){
  const d=newDeck();
- G.hands=[0,1,2,3].map(()=>d.splice(0,3));
+ G.hands=G.seats.map(()=>d.splice(0,3));
  G.vira=d.pop();G.value=1;G.lastRaise=-1;G.pending=0;G.round=0;G.rounds=[];G.table=[];G.past=[];G.res=0;G.win=-1;
- G.turn=(G.dealer+1)%4;G.phase='play';G.hno++;
+ G.turn=(G.dealer+1)%NP();G.phase='play';G.hno++;
  const a=G.score[0]===11,b=G.score[1]===11;
  G.ferro=(a&&b)?1:0;G.m11=(!G.ferro&&(a||b))?{t:a?0:1,ok:0}:0;
  if(G.ferro)shout(-1,'MÃO DE FERRO');else if(G.m11)shout(-1,'MÃO DE ONZE');
 }
-function nextDeal(){G.dealer=(G.dealer+1)%4;deal();onChange();}
+function nextDeal(){G.dealer=(G.dealer+1)%NP();deal();onChange();}
 function handWinner(r){
  if(r.length>=2){const[a,b]=r;
   if(a!=='t'&&a===b)return a;
@@ -251,16 +254,16 @@ function act(seat,a){
   const cov=!!a.cov&&G.round>0;
   const c=h.splice(i,1)[0];
   G.table.push({s:seat,c:cov?'X':c,r:cov?-1:str(c,G.vira)});
-  if(G.table.length===4){G.phase='show';finishRound();}else G.turn=(seat+1)%4;
+  if(G.table.length===NP()){G.phase='show';finishRound();}else G.turn=(seat+1)%NP();
   return true;}
  if(a.t==='raise'){
   if(ph!=='play'||G.pending||G.m11||G.ferro||G.turn!==seat||G.value>=12||G.lastRaise===team(seat))return false;
-  const to=nextVal(G.value);G.pending={by:seat,t:team(seat),to,r:(seat+1)%4};shout(seat,RAISE[to]);return true;}
+  const to=nextVal(G.value);G.pending={by:seat,t:team(seat),to,r:(seat+1)%NP()};shout(seat,RAISE[to]);return true;}
  if(a.t==='resp'){
   const p=G.pending;if(ph!=='play'||!p||p.r!==seat)return false;
   if(a.a==='acc'){G.value=p.to;G.lastRaise=p.t;G.pending=0;shout(seat,'Aceito!');return true;}
   if(a.a==='run'){shout(seat,'Corro!');G.pending=0;endHand(p.t,G.value);return true;}
-  if(a.a==='up'&&p.to<12){G.value=p.to;G.lastRaise=p.t;const to=nextVal(G.value);G.pending={by:seat,t:team(seat),to,r:(seat+1)%4};shout(seat,RAISE[to]);return true;}
+  if(a.a==='up'&&p.to<12){G.value=p.to;G.lastRaise=p.t;const to=nextVal(G.value);G.pending={by:seat,t:team(seat),to,r:(seat+1)%NP()};shout(seat,RAISE[to]);return true;}
   return false;}
  if(a.t==='m11'){
   const m=G.m11;if(ph!=='play'||!m||m.ok||team(seat)!==m.t)return false;
@@ -302,7 +305,7 @@ function addBot(i){if(G.seats[i])return;const used=G.seats.filter(Boolean).map(s
 function isBot(s){return !!(G.seats[s]&&(G.seats[s].bot||isAway(s)));}
 function needBot(){
  if(!G||G.phase!=='play')return -1;
- if(G.m11&&!G.m11.ok){const mem=[G.m11.t,G.m11.t+2];if(mem.some(s=>!isBot(s)))return -1;return mem[0];}
+ if(G.m11&&!G.m11.ok){const mem=NP()===4?[G.m11.t,G.m11.t+2]:[G.m11.t];if(mem.some(s=>!isBot(s)))return -1;return mem[0];}
  if(G.pending)return isBot(G.pending.r)?G.pending.r:-1;
  return isBot(G.turn)?G.turn:-1;
 }
@@ -315,7 +318,7 @@ function botEval(seat){let s=handPower(G.hands[seat]);const t=team(seat);for(con
  if(G.table.length){const max=Math.max(...G.table.map(p=>p.r));const tops=G.table.filter(p=>p.r===max);if(max>=0&&tops.every(p=>team(p.s)===t))s+=1;}
  return s;}
 function botMove(s){
- if(G.m11&&!G.m11.ok){const t=G.m11.t;const e=handPower(G.hands[t])+handPower(G.hands[t+2]);act(s,{t:'m11',a:e>=5.5?'play':'run'});return;}
+ if(G.m11&&!G.m11.ok){const t=G.m11.t;const e=(handPower(G.hands[t])+(NP()===4?handPower(G.hands[t+2]):2.5));act(s,{t:'m11',a:e>=5.5?'play':'run'});return;}
  if(G.pending){const e=botEval(s)+(Math.random()*1.8-0.6);const to=G.pending.to;
   if(e>=7.2+to*0.12&&to<12&&Math.random()<0.45)act(s,{t:'resp',a:'up'});
   else if(e>=3.4+to*0.1)act(s,{t:'resp',a:'acc'});
@@ -333,7 +336,7 @@ function botPick(s){
   return sv[sv.length-1].i;}
  const max=Math.max(...tb.map(p=>p.r));const tops=tb.filter(p=>p.r===max);
  const partnerWin=max>=0&&tops.every(p=>team(p.s)===team(s));
- if(partnerWin&&(tb.length===3||max>=8))return sv[0].i;
+ if(partnerWin&&(tb.length===NP()-1||max>=8))return sv[0].i;
  const beat=sv.find(o=>o.x>max);if(beat)return beat.i;
  const tie=sv.find(o=>o.x===max);if(tie&&G.round>0&&G.rounds[0]===team(s))return tie.i;
  return sv[0].i;
@@ -344,6 +347,8 @@ function botPick(s){
 const LS={get(k){try{return localStorage.getItem(k)}catch(e){return null}},set(k,v){try{localStorage.setItem(k,v)}catch(e){}},del(k){try{localStorage.removeItem(k)}catch(e){}}};
 let CID=LS.get('truco_cid');if(!CID||!/^c[a-z0-9]{4,12}$/.test(CID)){CID='c'+Math.random().toString(36).slice(2,10).replace(/[^a-z0-9]/g,'x');LS.set('truco_cid',CID);}
 let NAME=LS.get('truco_name')||'';
+let MODEN=LS.get('truco_mode')==='2'?2:4;
+function setMode(n){MODEN=n;LS.set('truco_mode',String(n));try{if(SRV&&SLOBBY)srvMsg(SLOBBY);else if(room)renderTables();}catch(e){}const a=document.getElementById('m4'),b=document.getElementById('m2');if(a){a.classList.toggle('on',n===4);b.classList.toggle('on',n===2);}const q=document.getElementById('bBots');if(q)q.textContent=n===2?'Jogar 1x1 contra o computador':'Jogar contra o computador';}
 function cleanName(n){if(typeof n!=='string')return '';return n.replace(/[^\p{L}\p{N} ._'-]/gu,'').trim().slice(0,14);}
 
 // ================= crypto (private hands)
@@ -426,9 +431,40 @@ const BACKURI=svgURI(BACKSVG);
 
 // ================= sound
 let AC=null,SOUND=LS.get('truco_snd')!=='0';
-function sfxInit(){if(AC||!SOUND)return;try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;}}
+function sfxInit(){unlockVoice();if(AC||!SOUND)return;try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){AC=null;}}
 function noise(dur,freq,gain,delay=0){if(!AC||!SOUND)return;try{const n=Math.floor(AC.sampleRate*dur);const b=AC.createBuffer(1,n,AC.sampleRate);const d=b.getChannelData(0);for(let i=0;i<n;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/n,3);const s=AC.createBufferSource();s.buffer=b;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=freq;f.Q.value=.9;const g=AC.createGain();g.gain.value=gain;s.connect(f).connect(g).connect(AC.destination);s.start(AC.currentTime+delay);}catch(e){}}
 function tone(fr,dur,gain,delay=0,type='sine'){if(!AC||!SOUND)return;try{const o=AC.createOscillator();o.type=type;o.frequency.value=fr;const g=AC.createGain();const t=AC.currentTime+delay;g.gain.setValueAtTime(0,t);g.gain.linearRampToValueAtTime(gain,t+.01);g.gain.exponentialRampToValueAtTime(.0001,t+dur);o.connect(g).connect(AC.destination);o.start(t);o.stop(t+dur+.05);}catch(e){}}
+// ----- voz (síntese de fala do aparelho, pt-BR)
+let VOICE=LS.get('truco_voz')!=='0',ptVoices=[],voiceUnlocked=false;
+function loadVoices(){try{const all=speechSynthesis.getVoices();ptVoices=all.filter(v=>/^pt(-|_)BR/i.test(v.lang));if(!ptVoices.length)ptVoices=all.filter(v=>/^pt/i.test(v.lang));}catch(e){}}
+if(window.speechSynthesis){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}}
+function unlockVoice(){if(voiceUnlocked||!window.speechSynthesis)return;voiceUnlocked=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='pt-BR';speechSynthesis.speak(u);}catch(e){}}
+const PHRASES={
+ 'TRUCO!':['Truco!','Truco, ladrão!','Truuuco!','Truco, marreco!','Pede truco, sim!'],
+ 'SEIS!':['Seis!','Seis, papudo!','Toma seis!','Seis, seu mentiroso!'],
+ 'NOVE!':['Nove!','Nove, que eu tenho!','Vai nove!'],
+ 'DOZE!':['Doze!','Doze, valendo o jogo!','Doze, e sai da mesa!'],
+ 'Aceito!':['Cai dentro!','Aceito!','Desce!','Manda que eu aguento!'],
+ 'Corro!':['Corro!','Tô fora!','Corri!'],
+ 'Vamos jogar!':['Vamos jogar!','Bora!'],
+ 'Corremos!':['Corremos!'],
+ 'MÃO DE ONZE':['Mão de onze!'],
+ 'MÃO DE FERRO':['Mão de ferro! Todo mundo no escuro!'],
+ 'CANGOU!':['Cangou!','Empatou!'],
+ 'VALENDO!':['Valendo!']
+};
+function say(key,seat){
+ if(!VOICE||!SOUND||!window.speechSynthesis)return;
+ const opts=PHRASES[key];if(!opts)return;
+ try{
+  const txt=opts[Math.floor(Math.random()*opts.length)];
+  const u=new SpeechSynthesisUtterance(txt);u.lang='pt-BR';
+  if(ptVoices.length)u.voice=ptVoices[(seat>=0?seat:0)%ptVoices.length];
+  const pitch=[1.0,0.75,1.3,0.9],big=/^(TRUCO|SEIS|NOVE|DOZE)/.test(key);
+  u.pitch=seat>=0?pitch[seat%4]:1;u.rate=big?1.12:1.02;u.volume=1;
+  speechSynthesis.cancel();speechSynthesis.speak(u);
+ }catch(e){}
+}
 const sfx={flick(){noise(.07,2600,.5);},deal(){for(let i=0;i<8;i++)noise(.05,2400,.35,i*.07);},knock(){tone(95,.25,.6);noise(.06,600,.6);tone(80,.25,.5,.16);noise(.06,600,.5,.16);},win(){tone(660,.25,.18);tone(880,.35,.18,.12);tone(1320,.5,.12,.24);},lose(){tone(300,.3,.15);tone(220,.45,.15,.15);}};
 
 // ================= net state
@@ -445,7 +481,7 @@ function buildPub(){
  const pres=hostPresentCids();const ack={};for(const k in G.ack)if(pres.has(k))ack[k]=G.ack[k];
  return {v:1,code:G.code,ph:G.phase,seats:G.seats.map(s=>s?{n:s.n,b:s.bot?1:0,c:s.bot?'':s.cid,on:(s.bot||pres.has(s.cid))?1:0}:0),sc:G.score,wn:G.wins,dl:G.dealer,vi:G.vira,tu:G.turn,rd:G.round,tb:G.table.map(p=>[p.s,p.c]),pa:G.past,rs:G.rounds,va:G.value,lr:G.lastRaise,pd:G.pending,m11:G.m11,fe:G.ferro,sh:G.shout,res:G.res,hn:G.hands.map(h=>h.length),hno:G.hno,ack,win:G.win,seq:G.seq};
 }
-function privFor(i){const o={};if(G.phase==='wait')return o;if(G.ferro)o.n=G.hands[i].length;else o.h=G.hands[i];if(G.m11&&!G.m11.ok&&team(i)===G.m11.t)o.p=G.hands[(i+2)%4];return o;}
+function privFor(i){const o={};if(G.phase==='wait')return o;if(G.ferro)o.n=G.hands[i].length;else o.h=G.hands[i];if(G.m11&&!G.m11.ok&&NP()===4&&team(i)===G.m11.t)o.p=G.hands[(i+2)%4];return o;}
 function saveHost(){if(!G)return;LS.set('truco_host',JSON.stringify({G,t:Date.now()}));}
 onChange=function(){if(!G||MODE!=='host')return;quickCheck();G.seq++;saveHost();scheduleBot();publish();renderAll();};
 let pubBusy=false,pubAgain=false;
@@ -453,15 +489,15 @@ async function publish(){
  if(!R||!G)return;if(pubBusy){pubAgain=true;return;}pubBusy=true;
  try{do{pubAgain=false;const st=buildPub();st.e={};
   const pk=new Map();for(const p of hostPeers()){const pr=p.presence;if(pr&&typeof pr.cid==='string')pk.set(pr.cid,typeof pr.pk==='string'?pr.pk:'');}
-  for(let i=0;i<4;i++){const s=G.seats[i];if(!s||s.bot||s.cid===CID)continue;st.e['s'+i]=await encFor(pk.get(s.cid)||'',privFor(i));}
+  for(let i=0;i<G.seats.length;i++){const s=G.seats[i];if(!s||s.bot||s.cid===CID)continue;st.e['s'+i]=await encFor(pk.get(s.cid)||'',privFor(i));}
   await R.presence({st});
-  if(room)room.presence({tb:{c:G.code,n:NAME,f:G.seats.filter(x=>!x||x.bot).length,p:G.phase,qk:G.qk?1:0}}).catch(()=>{});
+  if(room)room.presence({tb:{c:G.code,n:NAME,f:G.seats.filter(x=>!x||x.bot).length,p:G.phase,qk:G.qk?1:0,m:G.seats.length}}).catch(()=>{});
  }while(pubAgain);}catch(e){console.warn('publish',e);}
  pubBusy=false;
 }
 function hostHandle(cid,nm,a){
  const seat=G.seats.findIndex(s=>s&&!s.bot&&s.cid===cid);
- if(a.t==='sit'){const i=a.s|0;if(i<0||i>3)return;const cur=G.seats[i];
+ if(a.t==='sit'){const i=a.s|0;if(i<0||i>=G.seats.length)return;const cur=G.seats[i];
   if(cur&&!cur.bot&&cur.cid!==cid&&hostPresentCids().has(cur.cid))return;
   if(cur&&!cur.bot&&cur.cid===cid)return;
   if(seat>=0&&G.phase!=='wait')return;
@@ -505,6 +541,9 @@ async function onClientPeers(){
 
 // ================= view helpers
 let P=null,PR={};
+function nSeats(){return P&&Array.isArray(P.seats)?P.seats.length:4;}
+function relOf(s){const ms=mySeat(),b=ms<0?0:ms;return nSeats()===2?(s===b?0:2):(s-b+4)%4;}
+const is1v1=()=>nSeats()===2;
 function mySeat(){if(!P||!Array.isArray(P.seats))return -1;return P.seats.findIndex(s=>s&&s.c===CID);}
 function seatName(s){const st=P&&P.seats[s];return st?st.n||'Jogador':'—';}
 function initials(n){const p=(n||'?').trim().split(/\s+/);return ((p[0]||'?')[0]+(p[1]?p[1][0]:'')).toUpperCase();}
@@ -556,7 +595,7 @@ function placeCards(list){
 function renderCards(){
  const list=[],lbl=$('#labels');lbl.innerHTML='';
  if(!P){placeCards(list);return;}
- const ms=mySeat(),base=ms<0?0:ms,rel=s=>(s-base+4)%4,{cw,ch}=L,dk=deckPos();
+ const ms=mySeat(),rel=relOf,NPv=nSeats(),{cw,ch}=L,dk=deckPos();
  for(let k=0;k<3;k++)list.push({k:'deck'+k,f:null,x:dk.x-k*1.3,y:dk.y-k*1.6,r:0,s:.82,z:30+k});
  if(P.ph==='wait'){placeCards(list);return;}
  const vp=viraPos();
@@ -564,8 +603,8 @@ function renderCards(){
  const vl=document.createElement('div');vl.className='vlbl';vl.style.left=(dk.x+cw*.3)+'px';vl.style.top=(dk.y+ch*.48)+'px';
  const mr=manRank(P.vi);vl.innerHTML='VIRA · MANILHA <b>'+mr+'</b>';lbl.appendChild(vl);
  const canPlay=ms>=0&&P.ph==='play'&&!P.pd&&!(P.m11&&!P.m11.ok)&&P.tu===ms;
- for(let s=0;s<4;s++){
-  const r=rel(s),g=seatGeo(r),n=P.hn[s]||0,dorder=(s-P.dl+3)%4;
+ for(let s=0;s<NPv;s++){
+  const r=rel(s),g=seatGeo(r),n=P.hn[s]||0,dorder=(s-P.dl+NPv-1)%NPv;
   if(s===ms){
    const cards=PR&&Array.isArray(PR.h)?PR.h:null;const cnt=cards?cards.length:(PR&&typeof PR.n==='number'?PR.n:n);
    for(let i=0;i<cnt;i++){const c=cards?cards[i]:null,m=(cnt-1)/2,d=i-m;
@@ -590,15 +629,15 @@ function renderCards(){
 function renderPlates(){
  const box=$('#plates');box.innerHTML='';if(!P)return;
  const ms=mySeat(),base=ms<0?0:ms,isHost=canAdmin(),local=MODE==='host'&&G&&G.code==='local';
- for(let s=0;s<4;s++){
-  const g=seatGeo((s-base+4)%4),st=P.seats[s];
+ for(let s=0;s<nSeats();s++){
+  const g=seatGeo(relOf(s)),st=P.seats[s];
   const pl=document.createElement('div');pl.className='plate t'+team(s)+(st?'':' empty');pl.style.left=g.px+'px';pl.style.top=g.py+'px';
   const turnNow=P.ph==='play'&&((P.pd&&P.pd.r===s)||(!P.pd&&!(P.m11&&!P.m11.ok)&&P.tu===s));
   if(turnNow&&st)pl.classList.add('turn');
   const av=document.createElement('div');av.className='av';av.textContent=st?(st.b?'🤖':initials(st.n)):'+';pl.appendChild(av);
   const info=document.createElement('div');const nm=document.createElement('div');nm.className='nm';nm.textContent=st?st.n:'Lugar vago';info.appendChild(nm);
   const sub=document.createElement('div');sub.className='sub';
-  sub.textContent=st?((s===ms?'Você':ms<0?'Dupla '+(team(s)+1):team(s)===team(ms)?'Parceiro':'Adversário')+(st.on?'':' · ausente')):(P.ph==='wait'?'aguardando':'');
+  sub.textContent=st?((s===ms?'Você':ms<0?(is1v1()?'Jogador '+(s+1):'Dupla '+(team(s)+1)):team(s)===team(ms)?'Parceiro':'Adversário')+(st.on?'':' · ausente')):(P.ph==='wait'?'aguardando':'');
   info.appendChild(sub);pl.appendChild(info);
   if(P.ph!=='wait'&&P.dl===s){const d=document.createElement('div');d.className='dealer';d.textContent='D';d.title='Deu as cartas';pl.appendChild(d);}
   const bs=document.createElement('div');bs.className='pbtns';
@@ -616,18 +655,19 @@ function mkBtn(label,cls,fn){const b=document.createElement('button');b.classNam
 
 function renderHUD(){
  const h=$('#hud');if(!P||P.ph==='wait'&&!P.hno){h.style.display='none';return;}h.style.display='';
- const ms=mySeat(),my=ms<0?0:team(ms),lbl=t=>ms<0?'DUPLA '+(t+1):(t===my?'NÓS':'ELES');
+ const ms=mySeat(),my=ms<0?0:team(ms),lbl=t=>ms<0?(is1v1()?'JOG. ':'DUPLA ')+(t+1):is1v1()?(t===my?'VOCÊ':'RIVAL'):(t===my?'NÓS':'ELES');
  let html='';
  for(const t of[my,1-my]){let pips='';for(let i=0;i<12;i++)pips+='<span class="pip'+(i<P.sc[t]?' on':'')+'"></span>';
   html+=`<div class="row"><span class="tm t${t}">${lbl(t)}</span><span class="sc">${P.sc[t]}</span><span class="pips">${pips}</span></div>`;}
  let rds='';for(let i=0;i<3;i++){const r=P.rs?P.rs[i]:undefined;rds+='<span class="rd'+(r===undefined?'':r==='t'?' tie':' t'+r)+'"></span>';}
- html+=`<div class="meta"><span class="val">VALE ${P.va}</span> Rodadas ${rds}</div><div class="meta">Partidas ${P.wn[my]} × ${P.wn[1-my]}${P.m11?' · <b style="color:#ffd56a">MÃO DE ONZE</b>':''}${P.fe?' · <b style="color:#ffd56a">MÃO DE FERRO</b>':''}</div>${L.W<560&&P.code&&P.code!=='local'?'<div class="meta">Mesa <b style="color:#ffd56a;letter-spacing:.15em">'+String(P.code).toUpperCase().replace(/[^A-Z0-9]/g,'')+'</b></div>':''}`;
+ html+=`<div class="meta"><span class="val">VALE ${P.va}</span> Rodadas ${rds}</div><div class="meta">${is1v1()?'1x1':'2x2'} · Partidas ${P.wn[my]} × ${P.wn[1-my]}${P.m11?' · <b style="color:#ffd56a">MÃO DE ONZE</b>':''}${P.fe?' · <b style="color:#ffd56a">MÃO DE FERRO</b>':''}</div>${L.W<560&&P.code&&P.code!=='local'?'<div class="meta">Mesa <b style="color:#ffd56a;letter-spacing:.15em">'+String(P.code).toUpperCase().replace(/[^A-Z0-9]/g,'')+'</b></div>':''}`;
  h.innerHTML=html;
 }
 function renderTop(){
  const t=$('#topright');t.innerHTML='';if(!MODE)return;
  if((MODE==='host'&&G&&G.code!=='local'||MODE==='client')&&L.W>=560){const c=document.createElement('div');c.className='chip';c.innerHTML='MESA <b></b>';c.querySelector('b').textContent=(MODE==='host'?G.code:JOIN).toUpperCase();t.appendChild(c);}
  if(document.documentElement.requestFullscreen&&TOUCH)t.appendChild(mkBtn('⛶','mini ghost',()=>{try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen({navigationUI:'hide'}).then(()=>{try{screen.orientation.lock&&screen.orientation.lock('portrait').catch(()=>{})}catch(e){}}).catch(()=>{});}catch(e){}}));
+ t.appendChild(mkBtn(VOICE?'🗣️ Voz':'🤐 Voz','mini ghost'+(VOICE?' on':''),()=>{VOICE=!VOICE;LS.set('truco_voz',VOICE?'1':'0');if(VOICE){unlockVoice();say('TRUCO!',0);}else try{speechSynthesis.cancel();}catch(e){}renderTop();}));
  t.appendChild(mkBtn(SOUND?'🔊':'🔈','mini ghost',()=>{SOUND=!SOUND;LS.set('truco_snd',SOUND?'1':'0');if(SOUND)sfxInit();renderTop();}));
  t.appendChild(mkBtn('Sair','mini ghost',leave));
 }
@@ -637,10 +677,10 @@ function renderDock(){
  const ms=mySeat(),nm=s=>s===ms?'Você':seatName(s);let msg='';
  if(P.ph==='play'){
   if(P.m11&&!P.m11.ok){const mine=ms>=0&&team(ms)===P.m11.t;
-   if(mine){msg='Mão de onze! Veja as cartas do parceiro e decida.';
+   if(mine){msg=is1v1()?'Mão de onze! Jogar vale 3; correr dá 1 ao rival.':'Mão de onze! Veja as cartas do parceiro e decida.';
     if(PR&&Array.isArray(PR.p)){const row=document.createElement('div');row.className='peek';row.appendChild(document.createTextNode('Parceiro:'));PR.p.forEach(c=>{const i=new Image();i.src=cardURI(c);row.appendChild(i);});ac.appendChild(row);}
     ac.appendChild(mkBtn('Jogar (vale 3)','',()=>doAction({t:'m11',a:'play'})));ac.appendChild(mkBtn('Correr','red',()=>doAction({t:'m11',a:'run'})));}
-   else msg='Mão de onze — '+(ms<0?'a dupla '+(P.m11.t+1):'os adversários')+' estão decidindo se jogam…';
+   else msg='Mão de onze — '+(ms<0?'decidindo':is1v1()?'o rival está decidindo se joga':'os adversários estão decidindo se jogam')+'…';
   }else if(P.pd){const p=P.pd;
    if(p.r===ms){msg=nm(p.by)+' pediu '+RAISE[p.to].replace('!','')+'!';ac.appendChild(mkBtn('Aceito','',()=>doAction({t:'resp',a:'acc'})));ac.appendChild(mkBtn('Corro','red',()=>doAction({t:'resp',a:'run'})));if(p.to<12)ac.appendChild(mkBtn(RAISE[nextVal(p.to)],'hot',()=>doAction({t:'resp',a:'up'})));}
    else msg=nm(p.by)+' pediu '+RAISE[p.to]+' Aguardando '+nm(p.r)+'…';
@@ -658,13 +698,13 @@ function renderCenter(){
  const ms=mySeat();
  if(MODE==='client'&&!P&&!SRV){const p=panel('Procurando a mesa',`<div class="code"></div><p>${hostSeen?'O anfitrião saiu ou perdeu a conexão. Aguardando ele voltar…':'Conectando… o anfitrião precisa estar com a página aberta.'}</p>`);p.querySelector('.code').textContent=(JOIN||'').toUpperCase();p.querySelector('.row').appendChild(mkBtn('Voltar','ghost',leave));c.appendChild(p);return;}
  if(!P)return;
- if(P.ph==='wait'){const filled=P.seats.filter(Boolean).length;
-  const p=panel('Mesa',`<div class="code"></div><p>Envie este código aos amigos. ${filled}/4 lugares ocupados.</p><p>${((MODE==='host'&&G&&G.qk)||(P.qk))?'Partida rápida — esperando os jogadores da fila chegarem<span class="dots"></span>':ms<0?'Escolha um lugar vago e clique em <b>Sentar</b>.':MODE==='host'?'Complete os lugares vagos com bots ou espere os amigos.':'Aguardando o anfitrião começar a partida…'}</p>`);
+ if(P.ph==='wait'){const filled=P.seats.filter(Boolean).length,tot=nSeats();
+  const p=panel('Mesa',`<div class="code"></div><p>Envie este código aos amigos. ${is1v1()?'Modo 1x1':'Modo 2x2'} · ${filled}/${tot} lugares ocupados.</p><p>${((MODE==='host'&&G&&G.qk)||(P.qk))?'Partida rápida — esperando os jogadores da fila chegarem<span class="dots"></span>':ms<0?'Escolha um lugar vago e clique em <b>Sentar</b>.':MODE==='host'?'Complete os lugares vagos com bots ou espere os amigos.':'Aguardando o anfitrião começar a partida…'}</p>`);
   p.querySelector('.code').textContent=P.code.toUpperCase();
-  if(canAdmin()){const r=p.querySelector('.row');if(filled<4)r.appendChild(mkBtn('Completar com bots','ghost',()=>doAction({t:'fill'})));const b=mkBtn('Começar partida','',()=>doAction({t:'start'}));b.disabled=filled<4;r.appendChild(b);}
+  if(canAdmin()){const r=p.querySelector('.row');if(filled<tot)r.appendChild(mkBtn('Completar com bots','ghost',()=>doAction({t:'fill'})));const b=mkBtn('Começar partida','',()=>doAction({t:'start'}));b.disabled=filled<tot;r.appendChild(b);}
   c.appendChild(p);return;}
  if(P.ph==='over'){const my=ms<0?0:team(ms),w=P.res?P.res.w:-1;const won=ms>=0&&w===my;
-  const p=panel(ms<0?'Dupla '+(w+1)+' venceu!':won?'🏆 Vocês venceram!':'Eles venceram…',`<p style="font-size:18px">${P.sc[my]} × ${P.sc[1-my]}</p><p>Partidas: ${P.wn[my]} × ${P.wn[1-my]}</p>`);
+  const p=panel(ms<0?(is1v1()?'Jogador ':'Dupla ')+(w+1)+' venceu!':won?(is1v1()?'🏆 Você venceu!':'🏆 Vocês venceram!'):(is1v1()?'O rival venceu…':'Eles venceram…'),`<p style="font-size:18px">${P.sc[my]} × ${P.sc[1-my]}</p><p>Partidas: ${P.wn[my]} × ${P.wn[1-my]}</p>`);
   if(canAdmin())p.querySelector('.row').appendChild(mkBtn('Nova partida','',()=>doAction({t:'again'})));else p.querySelector('.row').appendChild(document.createTextNode('Aguardando o anfitrião…'));
   c.appendChild(p);}
 }
@@ -681,11 +721,12 @@ function effects(){
  if(P.hno!==lastHno){lastHno=P.hno;lastPlays=plays;sfx.deal();SEL=null;}
  else if(plays>lastPlays){sfx.flick();lastPlays=plays;}
  if(P.sh&&P.sh.id!==lastShout){lastShout=P.sh.id;const t=P.sh.t,s=P.sh.s;
-  if(s>=0){const g=seatGeo((s-base+4)%4);const b=document.createElement('div');b.className='bubble';b.textContent=t;b.style.left=g.px+'px';b.style.top=(g.py-24)+'px';$('#bubbles').appendChild(b);setTimeout(()=>b.remove(),2500);}
+  if(s>=0){const g=seatGeo(relOf(s));const b=document.createElement('div');b.className='bubble';b.textContent=t;b.style.left=g.px+'px';b.style.top=(g.py-24)+'px';$('#bubbles').appendChild(b);setTimeout(()=>b.remove(),2500);}
   if(s<0||/^(TRUCO|SEIS|NOVE|DOZE)/.test(t)){const f=$('#flash');f.textContent=t;f.classList.remove('go');void f.offsetWidth;f.classList.add('go');}
-  if(/^(TRUCO|SEIS|NOVE|DOZE)/.test(t))sfx.knock();}
+  if(/^(TRUCO|SEIS|NOVE|DOZE)/.test(t))sfx.knock();
+  say(t,s);}
  if((P.ph==='end'||P.ph==='over')&&P.res&&lastToast!==P.hno){lastToast=P.hno;const my=ms<0?0:team(ms),w=P.res.w;
-  let txt=w<0?'Mão empatada — ninguém pontua':(ms<0?'Dupla '+(w+1):(w===my?'Nós':'Eles'))+' +'+P.res.p+(P.res.p>1?' pontos':' ponto');
+  let txt=w<0?'Mão empatada — ninguém pontua':(ms<0?(is1v1()?'Jogador ':'Dupla ')+(w+1):is1v1()?(w===my?'Você':'Rival'):(w===my?'Nós':'Eles'))+' +'+P.res.p+(P.res.p>1?' pontos':' ponto');
   const t=$('#toast');t.innerHTML='<div class="panel"></div>';t.firstChild.textContent=txt;t.style.top=(L.felt.y+14)+'px';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);
   if(w>=0&&ms>=0)(w===my?sfx.win:sfx.lose)();}
 }
@@ -707,9 +748,9 @@ function doAction(a){
   if(a.t==='sit'){hostHandle(CID,NAME,a);onChange();return;}
   if(a.t==='bot'){if(!G.seats[a.s])addBot(a.s);onChange();return;}
   if(a.t==='kick'){const s=G.seats[a.s];if(!s)return;if(s.bot&&G.phase==='wait')G.seats[a.s]=0;else if(!s.bot&&s.cid!==CID){G.seats[a.s]=0;addBot(a.s);}onChange();return;}
-  if(a.t==='fill'){for(let i=0;i<4;i++)if(!G.seats[i])addBot(i);onChange();return;}
+  if(a.t==='fill'){for(let i=0;i<G.seats.length;i++)if(!G.seats[i])addBot(i);onChange();return;}
   if(a.t==='start'){if(G.phase==='wait'&&G.seats.every(Boolean)){G.score=[0,0];deal();onChange();}return;}
-  if(a.t==='again'){if(G.phase==='over'){G.score=[0,0];G.dealer=(G.dealer+1)%4;deal();onChange();}return;}
+  if(a.t==='again'){if(G.phase==='over'){G.score=[0,0];G.dealer=(G.dealer+1)%NP();deal();onChange();}return;}
   const s=G.seats.findIndex(x=>x&&!x.bot&&x.cid===CID);if(act(s,a))onChange();
  }else if(MODE==='client'){if(SRV)srv({t:'act',a});else send(a);renderDock();}
 }
@@ -722,7 +763,7 @@ function quickCheck(){
  const pres=hostPresentCids();
  const all=G.seats.every(s=>s&&(s.bot||pres.has(s.cid)));
  if(all||Date.now()-G.qt>25000){
-  for(let i=0;i<4;i++){const s=G.seats[i];if(s&&!s.bot&&!pres.has(s.cid)){G.seats[i]=0;addBot(i);}}
+  for(let i=0;i<G.seats.length;i++){const s=G.seats[i];if(s&&!s.bot&&!pres.has(s.cid)){G.seats[i]=0;addBot(i);}}
   G.score=[0,0];deal();shout(-1,'VALENDO!');return true;}
  return false;
 }
@@ -731,14 +772,14 @@ function queueList(){
  if(!room)return [];
  const seen=new Map();
  for(const p of room.peers()){const q=p.presence&&p.presence.q;if(!q||typeof q.c!=='string'||!/^c[a-z0-9]{4,12}$/.test(q.c)||typeof q.t!=='number')continue;
-  const o={c:q.c,t:q.t,n:cleanName(q.n)||'Jogador'};if(!seen.has(q.c)||seen.get(q.c).t>q.t)seen.set(q.c,o);}
+  if((q.m===2?2:4)!==(QUEUE?QUEUE.n:MODEN))continue;const o={c:q.c,t:q.t,n:cleanName(q.n)||'Jogador'};if(!seen.has(q.c)||seen.get(q.c).t>q.t)seen.set(q.c,o);}
  if(QUEUE&&!seen.has(CID))seen.set(CID,{c:CID,t:QUEUE.t,n:NAME});
  return [...seen.values()].sort((a,b)=>a.t-b.t||(a.c<b.c?-1:1));
 }
 function startQueue(){
  nameOk();if(!room)return;
  QUEUE={t:Date.now(),head:0};
- room.presence({q:{t:QUEUE.t,c:CID,n:NAME}}).catch(()=>{});
+ QUEUE.n=MODEN;room.presence({q:{t:QUEUE.t,c:CID,n:NAME,m:MODEN}}).catch(()=>{});
  showHome(false);$('#queue').classList.remove('hidden');queueTick();
 }
 function hideQueue(){$('#queue').classList.add('hidden');}
@@ -750,40 +791,41 @@ function queueTick(){
  const ps=room.peers();
  // fui chamado para uma mesa?
  for(const p of ps){const qm=p.presence&&p.presence.qm;
-  if(!p.sameTab&&qm&&typeof qm.c==='string'&&/^[a-z0-9]{4,6}$/.test(qm.c)&&Array.isArray(qm.m)&&qm.m.includes(CID)){goTable(qm.c);return;}}
+  if(!p.sameTab&&qm&&typeof qm.c==='string'&&(qm.n===2?2:4)===QUEUE.n&&/^[a-z0-9]{4,6}$/.test(qm.c)&&Array.isArray(qm.m)&&qm.m.includes(CID)){goTable(qm.c);return;}}
  const list=queueList(),pos=list.findIndex(x=>x.c===CID);
  renderQueue(list,pos);
  if(pos!==0){QUEUE.head=0;return;}
  if(!QUEUE.head)QUEUE.head=Date.now();
  if(Date.now()-QUEUE.head<1500)return; // espera a fila estabilizar
  // vaga em mesa rápida já em andamento? o 1º da fila entra primeiro
- const open=ps.find(p=>{const tb=p.presence&&p.presence.tb;return !p.sameTab&&tb&&tb.qk&&typeof tb.c==='string'&&/^[a-z0-9]{4,6}$/.test(tb.c)&&tb.p!=='wait'&&tb.p!=='over'&&(tb.f|0)>0;});
+ const open=ps.find(p=>{const tb=p.presence&&p.presence.tb;return !p.sameTab&&tb&&tb.qk&&(tb.m===2?2:4)===QUEUE.n&&typeof tb.c==='string'&&/^[a-z0-9]{4,6}$/.test(tb.c)&&tb.p!=='wait'&&tb.p!=='over'&&(tb.f|0)>0;});
  if(open){goTable(open.presence.tb.c);return;}
  const waited=Date.now()-QUEUE.t;
- if(list.length>=4||QUEUE.force||(waited>60000&&list.length>=2))formMatch(list.slice(0,4));
+ const QN=QUEUE.n;if(list.length>=QN||QUEUE.force||(QN===4&&waited>60000&&list.length>=2))formMatch(list.slice(0,QN),QN);
 }
-function formMatch(group){
- const code=genCode();QUEUE=null;hideQueue();
- room.presence({q:null,qm:{c:code,m:group.map(x=>x.c)}}).catch(()=>{});
+function formMatch(group,qn){
+ const code=genCode();QUEUE=null;hideQueue();group.qn=qn;
+ room.presence({q:null,qm:{c:code,n:qn,m:group.map(x=>x.c)}}).catch(()=>{});
  startHost(code,null,group);
 }
-function renderQueue(list,pos){
- const n=list.length,mesa=Math.floor(pos/4)+1;
+function renderQueue(list,pos,qn){
+ qn=qn||(QUEUE&&QUEUE.n)||MODEN;const n=list.length,mesa=Math.floor(pos/qn)+1;
  let info;
- if(pos<4){const falta=Math.max(0,4-n);info=pos===0?'Você é o <b>1º da fila</b>. ':'Você é o <b>'+(pos+1)+'º da fila</b>. ';
+ $('#queue h2').textContent='⚡ Fila da partida rápida · '+(qn===2?'1x1':'2x2');
+ if(pos<qn){const falta=Math.max(0,qn-n);info=pos===0?'Você é o <b>1º da fila</b>. ':'Você é o <b>'+(pos+1)+'º da fila</b>. ';
   info+=falta?'Faltam <b>'+falta+'</b> jogador'+(falta>1?'es':'')+' para a mesa abrir<span class="dots"></span>':'Mesa completa! Abrindo<span class="dots"></span>';}
  else info='Você é o <b>'+(pos+1)+'º da fila</b> e vai para a mesa '+mesa+'. Também entra antes se abrir uma vaga numa mesa em andamento.';
  $('#qinfo').innerHTML=info;
  const box=$('#qlist');box.innerHTML='';
  list.forEach((x,i)=>{
-  if(i%4===0){const h=document.createElement('div');h.className='qsep';h.textContent='MESA '+(i/4+1)+(i===0?' · próxima a abrir':'');box.appendChild(h);}
+  if(i%qn===0){const h=document.createElement('div');h.className='qsep';h.textContent='MESA '+(i/qn+1)+(i===0?' · próxima a abrir':'');box.appendChild(h);}
   const r=document.createElement('div');r.className='qrow'+(x.c===CID?' me':'');
   const a=document.createElement('div');a.className='qn';a.textContent=(i+1)+'º';
   const nm=document.createElement('div');nm.className='qname';nm.textContent=x.n+(x.c===CID?' (você)':'');
   const w=document.createElement('div');w.className='qw';w.textContent=fmt(Date.now()-x.t);
   r.append(a,nm,w);box.appendChild(r);});
  const waited=Date.now()-QUEUE.t;
- $('#qtime').textContent=pos===0?(n>=2?'Se a mesa não completar em '+fmt(60000-waited)+', ela começa com bots nos lugares vagos.':'Aguardando outros jogadores entrarem na fila…'):'A ordem de chegada é respeitada: os 4 primeiros formam a próxima mesa.';
+ $('#qtime').textContent=pos===0?(qn===4&&n>=2?'Se a mesa não completar em '+fmt(60000-waited)+', ela começa com bots nos lugares vagos.':'Aguardando outros jogadores entrarem na fila…'):'A ordem de chegada é respeitada: os '+qn+' primeiros formam a próxima mesa.';
  $('#qBots').classList.toggle('hidden',pos!==0);
 }
 setInterval(()=>{if(QUEUE)queueTick();},1000);
@@ -821,12 +863,12 @@ function srvMsg(m){
   ST=m.st;PRIV=m.pv||{};hostSeen=true;renderAll();return;}
  if(m.t==='lobby'){SLOBBY=m;
   if(MODE==='client'&&!m.table){MODE=null;ST=null;PRIV=null;JOIN=null;for(const[,e]of els)e.remove();els.clear();renderAll();if(m.pos<0)showHome(true);}
-  const n=m.q.length;$('#qcount').textContent=n?('👥 '+n+' jogador'+(n>1?'es':'')+' na fila agora · '+m.online+' online'):('Ninguém na fila — seja o primeiro! · '+m.online+' online');
+  SLOBBY=m;const n=MODEN===2?(m.q2|0):(m.q4|0);$('#qcount').textContent=(n?('👥 '+n+' na fila '+(MODEN===2?'1x1':'2x2')+' agora'):('Fila '+(MODEN===2?'1x1':'2x2')+' vazia — seja o primeiro!'))+' · '+m.online+' online';
   tableList(m.tables||[]);
   if(m.pos>=0&&MODE!=='client'&&MODE!=='host'){
-   const me=m.q[m.pos];QUEUE={t:Date.now()-(me?me.w:0)};
+   const me=m.q[m.pos];QUEUE={t:Date.now()-(me?me.w:0),n:m.qn===2?2:4};
    const list=m.q.map((x,i)=>({c:i===m.pos?CID:'q'+i,t:Date.now()-x.w,n:x.n}));
-   showHome(false);$('#queue').classList.remove('hidden');renderQueue(list,m.pos);
+   showHome(false);$('#queue').classList.remove('hidden');renderQueue(list,m.pos,QUEUE.n);
   }else if(m.pos<0&&QUEUE){QUEUE=null;hideQueue();if(!MODE)showHome(true);}
   return;}
  if(m.t==='err')flashMsg(m.err);
@@ -857,8 +899,8 @@ async function startHost(code,saved,group){
  nameOk();clearTimers();if(SRV&&code==='local')srv({t:'leave'});
  MODE='host';ST=null;PRIV=null;firstView=true;
  if(saved){G=saved;G.seats.forEach(s=>{if(s&&!s.bot&&s.cid===CID)s.n=NAME;});}
- else{G=newGame(code,CID,NAME);if(code==='local'){addBot(1);addBot(2);addBot(3);deal();}
-  else if(group){G.qk=1;G.qt=Date.now();group.slice(1,4).forEach((x,i)=>{G.seats[i+1]={cid:x.c,n:x.n,bot:0};});for(let i=0;i<4;i++)if(!G.seats[i])addBot(i);}}
+ else{G=newGame(code,CID,NAME,group&&group.qn?group.qn:MODEN);if(code==='local'){for(let i=1;i<G.seats.length;i++)addBot(i);deal();}
+  else if(group){G.qk=1;G.qt=Date.now();group.slice(1,G.seats.length).forEach((x,i)=>{G.seats[i+1]={cid:x.c,n:x.n,bot:0};});for(let i=0;i<G.seats.length;i++)if(!G.seats[i])addBot(i);}}
  showHome(false);
  if(code!=='local'){
   try{R=await room.join('truco-'+code);}catch(e){R=null;alertBox('Não foi possível abrir a mesa online ('+(e&&e.code||'erro')+').');leave();return;}
@@ -900,7 +942,7 @@ function tableList(list){
  if(!list.length)return;
  const h=document.createElement('h4');h.textContent='MESAS ABERTAS';box.appendChild(h);
  for(const tb of list){const r=document.createElement('div');r.className='trow';
-  const t=document.createElement('span');t.textContent=(tb.qk?'⚡ Rápida ':'Mesa ')+tb.c.toUpperCase()+' · '+(cleanName(tb.n)||'Anfitrião')+' · '+(tb.p==='wait'?'esperando':'em jogo')+' · '+(tb.f|0)+' vaga(s)';
+  const t=document.createElement('span');t.textContent=(tb.qk?'⚡ Rápida ':'Mesa ')+tb.c.toUpperCase()+' · '+(tb.m===2?'1x1':'2x2')+' · '+(cleanName(tb.n)||'Anfitrião')+' · '+(tb.p==='wait'?'esperando':'em jogo')+' · '+(tb.f|0)+' vaga(s)';
   r.appendChild(t);r.appendChild(mkBtn('Entrar','mini',()=>{if(SRV){nameOk();srv({t:'join',code:tb.c});}else joinTable(tb.c);}));box.appendChild(r);}
 }
 async function initRoom(){
@@ -909,9 +951,9 @@ async function initRoom(){
  if(room){note.textContent='Online ✓ — crie uma mesa e mande o código aos amigos, ou entre numa mesa.';$('#bCreate').disabled=false;$('#bJoin').disabled=false;room.onPeers(ch=>{renderTables(ch);queueTick();},()=>{});renderResume();$('#bQuick').disabled=false;}
  else{note.textContent='O modo online não está disponível nesta visualização. Você ainda pode jogar contra o computador.';}
 }
-$('#nick').value=NAME;
-$('#bCreate').onclick=()=>{sfxInit();if(SRV){nameOk();srv({t:'create'});return;}if(room)startHost(genCode());};
-$('#bQuick').onclick=()=>{sfxInit();if(SRV){nameOk();srv({t:'queue'});QUEUE={t:Date.now()};showHome(false);$('#queue').classList.remove('hidden');renderQueue([{c:CID,t:Date.now(),n:NAME}],0);return;}startQueue();};
+$('#nick').value=NAME;setMode(MODEN);$('#m4').onclick=()=>setMode(4);$('#m2').onclick=()=>setMode(2);
+$('#bCreate').onclick=()=>{sfxInit();if(SRV){nameOk();srv({t:'create',n:MODEN});return;}if(room)startHost(genCode());};
+$('#bQuick').onclick=()=>{sfxInit();if(SRV){nameOk();srv({t:'queue',n:MODEN});QUEUE={t:Date.now(),n:MODEN};showHome(false);$('#queue').classList.remove('hidden');renderQueue([{c:CID,t:Date.now(),n:NAME}],0,MODEN);return;}startQueue();};
 $('#qLeave').onclick=()=>leaveQueue();
 $('#qBots').onclick=()=>{if(SRV){srv({t:'force'});return;}if(QUEUE){QUEUE.force=1;queueTick();}};
 $('#bBots').onclick=()=>{sfxInit();startHost('local');};

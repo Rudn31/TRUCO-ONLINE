@@ -23,7 +23,7 @@ const E = sandbox.ENG;
 // ---------- estado
 const clients = new Map(); // cid -> {cid,nm,conns:Set,table,offSince}
 const tables = new Map();  // code -> {code,G,qk,againT,lastHuman}
-let queue = [];            // [{cid,t}] em ordem de chegada
+let queue = [];            // [{cid,t,n}] em ordem de chegada (n = 2 para 1x1, 4 para 2x2)
 
 const CID_RE = /^c[a-z0-9]{4,12}$/;
 const CODE_RE = /^[a-z0-9]{4,6}$/;
@@ -60,7 +60,7 @@ function pubFor(tb, cid) {
   const pv = {};
   if (seat >= 0 && G.phase !== 'wait') {
     if (G.ferro) pv.n = G.hands[seat].length; else pv.h = G.hands[seat];
-    if (G.m11 && !G.m11.ok && (seat & 1) === G.m11.t) pv.p = G.hands[(seat + 2) % 4];
+    if (G.m11 && !G.m11.ok && G.seats.length === 4 && (seat & 1) === G.m11.t) pv.p = G.hands[(seat + 2) % 4];
   }
   return { t: 'st', st, pv };
 }
@@ -72,13 +72,13 @@ function changed(tb) {
   for (const c of members(tb)) sendTo(c, pubFor(tb, c.cid));
   // partida rápida terminada: nova partida automática
   if (tb.qk && tb.G.phase === 'over' && !tb.againT) {
-    tb.againT = setTimeout(() => { tb.againT = null; if (tables.has(tb.code) && tb.G.phase === 'over') { withG(tb, () => { tb.G.score = [0, 0]; tb.G.dealer = (tb.G.dealer + 1) % 4; E.deal(); }); changed(tb); } }, 12000);
+    tb.againT = setTimeout(() => { tb.againT = null; if (tables.has(tb.code) && tb.G.phase === 'over') { withG(tb, () => { tb.G.score = [0, 0]; tb.G.dealer = (tb.G.dealer + 1) % tb.G.seats.length; E.deal(); }); changed(tb); } }, 12000);
   }
   lobbyDirty = true;
 }
-function createTable(owner, qk) {
+function createTable(owner, qk, n) {
   const code = genCode();
-  const G = E.newGame(code, owner.cid, owner.nm);
+  const G = E.newGame(code, owner.cid, owner.nm, n === 2 ? 2 : 4);
   const tb = { code, G, qk: !!qk, againT: null, lastHuman: Date.now() };
   tables.set(code, tb);
   return tb;
@@ -104,7 +104,7 @@ function leaveTable(c) {
 }
 function sit(tb, c, i) {
   const G = tb.G;
-  if (!(i >= 0 && i < 4)) return 'Lugar inválido';
+  if (!(i >= 0 && i < G.seats.length)) return 'Lugar inválido';
   const cur = G.seats[i];
   if (cur && !cur.bot && cur.cid !== c.cid && online(cur.cid)) return 'Lugar ocupado';
   const mine = seatOf(tb, c.cid);
@@ -119,47 +119,56 @@ function sit(tb, c, i) {
 function cleanQueue() {
   queue = queue.filter(q => { const c = clients.get(q.cid); return c && !c.table && (c.conns.size > 0 || Date.now() - c.offSince < 20000); });
 }
-function formMatch(group) {
+function formMatch(group, n) {
   const owner = clients.get(group[0].cid);
-  const tb = createTable(owner, true);
+  const tb = createTable(owner, true, n);
   group.forEach((q, i) => { const c = clients.get(q.cid); c.table = tb.code; if (i > 0) tb.G.seats[i] = { cid: c.cid, n: c.nm, bot: 0 }; });
-  withG(tb, () => { for (let i = 0; i < 4; i++) if (!tb.G.seats[i]) E.addBot(i); tb.G.score = [0, 0]; E.deal(); });
+  withG(tb, () => { for (let i = 0; i < tb.G.seats.length; i++) if (!tb.G.seats[i]) E.addBot(i); tb.G.score = [0, 0]; E.deal(); });
   changed(tb);
 }
+const takeFromQueue = (n, k) => { const out = []; queue = queue.filter(q => { if (q.n === n && out.length < k) { out.push(q); return false; } return true; }); return out; };
 function matchmake() {
   cleanQueue();
-  // 1) vagas (bots) em partidas rápidas já em andamento: o 1º da fila entra primeiro
-  for (const tb of tables.values()) {
-    if (!tb.qk || tb.G.phase === 'wait') continue;
-    for (let i = 0; i < 4 && queue.length; i++) {
-      const s = tb.G.seats[i];
-      if (s && s.bot) { const q = queue.shift(); const c = clients.get(q.cid); c.table = tb.code; tb.G.seats[i] = { cid: c.cid, n: c.nm, bot: 0 }; changed(tb); }
+  for (const n of [4, 2]) {
+    const waiting = () => queue.filter(q => q.n === n);
+    // 1) vagas (bots) em partidas rápidas já em andamento do mesmo modo: o 1º da fila entra primeiro
+    for (const tb of tables.values()) {
+      if (!tb.qk || tb.G.phase === 'wait' || tb.G.seats.length !== n) continue;
+      for (let i = 0; i < n && waiting().length; i++) {
+        const s = tb.G.seats[i];
+        if (s && s.bot) { const q = takeFromQueue(n, 1)[0]; const c = clients.get(q.cid); c.table = tb.code; tb.G.seats[i] = { cid: c.cid, n: c.nm, bot: 0 }; changed(tb); }
+      }
     }
+    // 2) a cada n na fila, abre uma mesa
+    while (waiting().length >= n) formMatch(takeFromQueue(n, n), n);
+    // 3) 2x2: 2 ou 3 esperando há mais de 1 minuto -> começa com bots
+    const w = waiting();
+    if (n === 4 && w.length >= 2 && Date.now() - w[0].t > 60000) formMatch(takeFromQueue(4, 4), 4);
   }
-  // 2) a cada 4 na fila, abre uma mesa
-  while (queue.length >= 4) formMatch(queue.splice(0, 4));
-  // 3) 2 ou 3 esperando há mais de 1 minuto: começa com bots
-  if (queue.length >= 2 && Date.now() - queue[0].t > 60000) formMatch(queue.splice(0, 4));
   lobbyDirty = true;
 }
 
 // ---------- lobby
 let lobbyDirty = true;
 function lobbyFor(c) {
-  const pos = queue.findIndex(q => q.cid === c.cid);
+  const mine = queue.find(q => q.cid === c.cid);
+  const qn = mine ? mine.n : 4;
+  const list = queue.filter(q => q.n === qn);
+  const pos = list.findIndex(q => q.cid === c.cid);
   const now = Date.now();
-  const q = queue.map(x => ({ n: (clients.get(x.cid) || {}).nm || 'Jogador', w: now - x.t }));
+  const q = list.map(x => ({ n: (clients.get(x.cid) || {}).nm || 'Jogador', w: now - x.t }));
+  const q2 = queue.filter(x => x.n === 2).length, q4 = queue.filter(x => x.n === 4).length;
   const tablesList = [];
   for (const tb of tables.values()) {
     if (!tb.qk && tb.G.phase !== 'wait') continue;
     const f = tb.G.seats.filter(s => !s || s.bot).length;
     const host = tb.G.seats.find(s => s && !s.bot);
     if (tb.qk && !f) continue;
-    tablesList.push({ c: tb.code, n: host ? host.n : 'Mesa', f, p: tb.G.phase, qk: tb.qk ? 1 : 0 });
+    tablesList.push({ c: tb.code, n: host ? host.n : 'Mesa', f, p: tb.G.phase, qk: tb.qk ? 1 : 0, m: tb.G.seats.length });
     if (tablesList.length >= 12) break;
   }
   let on = 0; for (const x of clients.values()) if (x.conns.size) on++;
-  return { t: 'lobby', q, pos, tables: tablesList, table: c.table || null, online: on };
+  return { t: 'lobby', q, qn, q2, q4, pos, tables: tablesList, table: c.table || null, online: on };
 }
 function sendLobby(c) { sendTo(c, lobbyFor(c)); }
 function lobbyBroadcast() { lobbyDirty = false; for (const c of clients.values()) if (c.conns.size && !c.table) sendLobby(c); }
@@ -170,19 +179,24 @@ function handle(c, a) {
   switch (a.t) {
     case 'queue': {
       if (c.table) leaveTable(c);
-      if (!queue.some(q => q.cid === c.cid)) queue.push({ cid: c.cid, t: Date.now() });
+      const n = a.n === 2 ? 2 : 4;
+      const ex = queue.find(q => q.cid === c.cid);
+      if (ex && ex.n !== n) { ex.n = n; ex.t = Date.now(); }
+      if (!ex) queue.push({ cid: c.cid, t: Date.now(), n });
       matchmake(); lobbyBroadcast(); return { ok: 1 };
     }
     case 'unqueue': queue = queue.filter(q => q.cid !== c.cid); lobbyBroadcast(); return { ok: 1 };
     case 'force': {
       cleanQueue();
-      if (!queue.length || queue[0].cid !== c.cid) return { err: 'Só o 1º da fila pode começar' };
-      formMatch(queue.splice(0, 4)); lobbyBroadcast(); return { ok: 1 };
+      const me = queue.find(q => q.cid === c.cid); if (!me) return { err: 'Você não está na fila' };
+      const first = queue.find(q => q.n === me.n);
+      if (first.cid !== c.cid) return { err: 'Só o 1º da fila pode começar' };
+      formMatch(takeFromQueue(me.n, me.n), me.n); lobbyBroadcast(); return { ok: 1 };
     }
     case 'create': {
       queue = queue.filter(q => q.cid !== c.cid);
       if (c.table) leaveTable(c);
-      const tb = createTable(c, false); c.table = tb.code; changed(tb); lobbyBroadcast(); return { ok: 1, code: tb.code };
+      const tb = createTable(c, false, a.n === 2 ? 2 : 4); c.table = tb.code; changed(tb); lobbyBroadcast(); return { ok: 1, code: tb.code };
     }
     case 'join': {
       const code = String(a.code || '').toLowerCase();
@@ -207,14 +221,14 @@ function handle(c, a) {
       if (x.t === 'sit') { const e = sit(tb, c, x.s | 0); changed(tb); return e ? { err: e } : { ok: 1 }; }
       if (x.t === 'stand') { if (seat >= 0 && G.phase === 'wait') G.seats[seat] = 0; changed(tb); return { ok: 1 }; }
       if (!admin) return { err: 'Sente-se para jogar' };
-      if (x.t === 'bot') { const i = x.s | 0; if (i >= 0 && i < 4 && !G.seats[i]) withG(tb, () => E.addBot(i)); changed(tb); return { ok: 1 }; }
+      if (x.t === 'bot') { const i = x.s | 0; if (i >= 0 && i < G.seats.length && !G.seats[i]) withG(tb, () => E.addBot(i)); changed(tb); return { ok: 1 }; }
       if (x.t === 'kick') { const i = x.s | 0, s = G.seats[i]; if (!s) return { ok: 1 };
         if (s.bot && G.phase === 'wait') G.seats[i] = 0;
         else if (!s.bot && s.cid !== c.cid && !online(s.cid)) { G.seats[i] = 0; withG(tb, () => E.addBot(i)); }
         changed(tb); return { ok: 1 }; }
-      if (x.t === 'fill') { withG(tb, () => { for (let i = 0; i < 4; i++) if (!G.seats[i]) E.addBot(i); }); changed(tb); return { ok: 1 }; }
+      if (x.t === 'fill') { withG(tb, () => { for (let i = 0; i < G.seats.length; i++) if (!G.seats[i]) E.addBot(i); }); changed(tb); return { ok: 1 }; }
       if (x.t === 'start') { if (G.phase === 'wait' && G.seats.every(Boolean)) { withG(tb, () => { G.score = [0, 0]; E.deal(); }); changed(tb); } return { ok: 1 }; }
-      if (x.t === 'again') { if (G.phase === 'over') { clearTimeout(tb.againT); tb.againT = null; withG(tb, () => { G.score = [0, 0]; G.dealer = (G.dealer + 1) % 4; E.deal(); }); changed(tb); } return { ok: 1 }; }
+      if (x.t === 'again') { if (G.phase === 'over') { clearTimeout(tb.againT); tb.againT = null; withG(tb, () => { G.score = [0, 0]; G.dealer = (G.dealer + 1) % G.seats.length; E.deal(); }); changed(tb); } return { ok: 1 }; }
       const ok = withG(tb, () => E.act(seat, x));
       if (ok) changed(tb);
       return ok ? { ok: 1 } : { err: '' };
