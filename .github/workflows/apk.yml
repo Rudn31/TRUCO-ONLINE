@@ -1,0 +1,62 @@
+name: Gerar APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'public/index.html'
+      - 'android/**'
+      - '.github/workflows/apk.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Colocar o jogo dentro do app
+        run: |
+          mkdir -p android/app/src/main/assets
+          cp public/index.html android/app/src/main/assets/index.html
+
+      - name: Compilar o APK
+        working-directory: android
+        run: gradle assembleRelease --no-daemon --stacktrace
+
+      - name: Renomear
+        run: cp android/app/build/outputs/apk/release/app-release.apk truco-paulista.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: truco-paulista-apk
+          path: truco-paulista.apk
+
+      - name: Publicar para download
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk
+          name: Truco Paulista — APK para Android
+          make_latest: true
+          body: |
+            📲 **Baixe o arquivo `truco-paulista.apk` abaixo e abra no celular Android.**
+
+            - Contra o computador: funciona **sem internet**.
+            - Partida rápida, mesa privada, 1x1 e 2x2: precisa de internet.
+
+            Versão gerada automaticamente a partir do commit ${{ github.sha }}.
+          files: truco-paulista.apk

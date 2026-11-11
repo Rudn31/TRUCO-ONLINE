@@ -252,6 +252,13 @@ function readBody(req, limit = 8192) {
 const REDIRECT_TO = (process.env.REDIRECT_TO || '').replace(/\/$/, '');
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // o app Android (APK) acessa a API de outra origem: libera CORS só para /api
+  if (url.pathname.startsWith('/api/')) {
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-headers', 'content-type');
+    res.setHeader('access-control-allow-methods', 'GET, POST, OPTIONS');
+    if (req.method === 'OPTIONS') { res.writeHead(204, { 'access-control-max-age': '86400' }); return res.end(); }
+  }
   // endereço antigo: manda todo mundo para o servidor novo (mais perto do Brasil)
   if (REDIRECT_TO && !url.pathname.startsWith('/api/')) { res.writeHead(301, { location: REDIRECT_TO + req.url, 'cache-control': 'no-cache' }); return res.end(); }
   const p = url.pathname;

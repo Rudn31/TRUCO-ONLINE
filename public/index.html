@@ -466,7 +466,10 @@ const PHRASES={
  'VALENDO!':['Valendo!']
 };
 function say(key,seat){
- if(!VOICE||!SOUND||!window.speechSynthesis)return;
+ if(!VOICE||!SOUND)return;
+ if(window.AndroidTTS){const c0=CALLS[key];let t0,r0=1.05;if(c0){const c=c0[Math.floor(Math.random()*c0.length)];t0=c[0];r0=c[1];}else{const o=PHRASES[key];if(!o)return;t0=o[Math.floor(Math.random()*o.length)];}
+  try{AndroidTTS.speak(t0,(c0?.86:.94)-[0,.03,-.02,.05][(seat>=0?seat:0)%4],r0);}catch(e){}return;}
+ if(!window.speechSynthesis)return;
  if(!ptVoices.length)loadVoices();
  let txt,rate=1.05;
  const call=CALLS[key];
@@ -683,7 +686,7 @@ function renderHUD(){
 function renderTop(){
  const t=$('#topright');t.innerHTML='';if(!MODE)return;
  if((MODE==='host'&&G&&G.code!=='local'||MODE==='client')&&L.W>=560){const c=document.createElement('div');c.className='chip';c.innerHTML='MESA <b></b>';c.querySelector('b').textContent=(MODE==='host'?G.code:JOIN).toUpperCase();t.appendChild(c);}
- if(document.documentElement.requestFullscreen&&TOUCH)t.appendChild(mkBtn('⛶','mini ghost',()=>{try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen({navigationUI:'hide'}).then(()=>{try{screen.orientation.lock&&screen.orientation.lock('portrait').catch(()=>{})}catch(e){}}).catch(()=>{});}catch(e){}}));
+ if(!IS_APP&&document.documentElement.requestFullscreen&&TOUCH)t.appendChild(mkBtn('⛶','mini ghost',()=>{try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen({navigationUI:'hide'}).then(()=>{try{screen.orientation.lock&&screen.orientation.lock('portrait').catch(()=>{})}catch(e){}}).catch(()=>{});}catch(e){}}));
  t.appendChild(mkBtn(VOICE?'🗣️ Voz':'🤐 Voz','mini ghost'+(VOICE?' on':''),()=>{VOICE=!VOICE;LS.set('truco_voz',VOICE?'1':'0');if(VOICE){unlockVoice();say('TRUCO!',0);}else try{speechSynthesis.cancel();}catch(e){}renderTop();}));
  t.appendChild(mkBtn(SOUND?'🔊':'🔈','mini ghost',()=>{SOUND=!SOUND;LS.set('truco_snd',SOUND?'1':'0');if(SOUND)sfxInit();renderTop();}));
  t.appendChild(mkBtn('Sair','mini ghost',leave));
@@ -734,7 +737,7 @@ function effects(){
  const plays=(P.pa||[]).reduce((a,r)=>a+r.length,0)+(P.tb||[]).length;
  if(firstView){firstView=false;lastShout=P.sh?P.sh.id:0;lastPlays=plays;lastHno=P.hno;lastToast=P.ph==='end'||P.ph==='over'?P.hno:null;return;}
  const tk=P.ph==='play'&&ms>=0&&((P.pd&&P.pd.r===ms)||(!P.pd&&P.tu===ms&&!(P.m11&&!P.m11.ok)))?P.hno+'_'+plays+'_'+(P.pd?P.pd.to:0):'';
- if(tk&&tk!==lastTurnKey){try{navigator.vibrate&&navigator.vibrate(40);}catch(e){}}lastTurnKey=tk;
+ if(tk&&tk!==lastTurnKey){try{if(window.AndroidTTS&&AndroidTTS.vibrate)AndroidTTS.vibrate(45);else navigator.vibrate&&navigator.vibrate(40);}catch(e){}}lastTurnKey=tk;
  if(P.hno!==lastHno){lastHno=P.hno;lastPlays=plays;sfx.deal();SEL=null;}
  else if(plays>lastPlays){sfx.flick();lastPlays=plays;}
  if(P.sh&&P.sh.id!==lastShout){lastShout=P.sh.id;const t=P.sh.t,s=P.sh.s;
@@ -868,15 +871,18 @@ setInterval(()=>{if(QUEUE)queueTick();},1000);
 
 
 // ================= servidor dedicado (Render) — usado quando a página é aberta pelo endereço do servidor
+// No app Android o jogo roda de dentro do APK e conversa com o servidor pela internet
+const IS_APP=location.hostname==='appassets.androidplatform.net'||!!window.AndroidTTS;
+const API=IS_APP?'https://truco-online-vpr9.onrender.com':'';
 let SRV=false,ES=null,SLOBBY=null,lastBeat=Date.now(),lastState=0,netDownT=null;
 async function detectServer(){
- if(!/^https?:$/.test(location.protocol))return false;
- try{const c=new AbortController();setTimeout(()=>c.abort(),6000);const r=await fetch('/api/ping',{cache:'no-store',signal:c.signal});if(!r.ok)return false;const j=await r.json();return !!(j&&j.truco===1);}catch(e){return false;}
+ if(!API&&!/^https?:$/.test(location.protocol))return false;
+ try{const c=new AbortController();setTimeout(()=>c.abort(),6000);const r=await fetch(API+'/api/ping',{cache:'no-store',signal:c.signal});if(!r.ok)return false;const j=await r.json();return !!(j&&j.truco===1);}catch(e){return false;}
 }
 function setNet(ok){$('#netbad').classList.toggle('hidden',ok);}
 function srvConnect(){
  try{if(ES)ES.close();}catch(e){}
- ES=new EventSource('/api/events?cid='+encodeURIComponent(CID)+'&nm='+encodeURIComponent(NAME||''));
+ ES=new EventSource(API+'/api/events?cid='+encodeURIComponent(CID)+'&nm='+encodeURIComponent(NAME||''));
  ES.onopen=()=>{clearTimeout(netDownT);setNet(true);lastBeat=Date.now();};
  ES.onerror=()=>{clearTimeout(netDownT);netDownT=setTimeout(()=>{if(!ES||ES.readyState!==1)setNet(false);},2500);};
  ES.onmessage=e=>{lastBeat=Date.now();let m;try{m=JSON.parse(e.data);}catch(x){return;}srvMsg(m);};
@@ -888,7 +894,7 @@ addEventListener('online',()=>{if(SRV)srvConnect();});
 async function srv(a,tries=3){
  for(let i=0;i<tries;i++){
   try{const c=new AbortController();const to=setTimeout(()=>c.abort(),8000);
-   const r=await fetch('/api/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cid:CID,nm:NAME,a}),signal:c.signal});clearTimeout(to);
+   const r=await fetch(API+'/api/act',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cid:CID,nm:NAME,a}),signal:c.signal});clearTimeout(to);
    const j=await r.json();if(j&&j.err){$('#netnote').textContent=j.err;flashMsg(j.err);}return j;}
   catch(e){await new Promise(r=>setTimeout(r,500*(i+1)));}
  }
@@ -922,7 +928,11 @@ function addManifest(){
 }
 async function boot(){
  SRV=await detectServer();
- if(SRV){addManifest();$('#netnote').textContent='Servidor online ✓ — jogue com qualquer pessoa pelo celular ou computador.';
+ if(!SRV&&IS_APP){
+  $('#netnote').textContent='📴 Sem conexão com o servidor. Você já pode jogar contra o computador (funciona sem internet). Tentando conectar…';
+  const retry=async()=>{if(SRV)return;if(await detectServer()){SRV=true;$('#netnote').textContent='Servidor online ✓ — jogue com qualquer pessoa.';$('#bQuick').disabled=false;$('#bCreate').disabled=false;$('#bJoin').disabled=false;srvConnect();}else setTimeout(retry,6000);};
+  setTimeout(retry,4000);return;}
+ if(SRV){if(!IS_APP)addManifest();$('#netnote').textContent='Servidor online ✓ — jogue com qualquer pessoa pelo celular ou computador.';
   $('#bQuick').disabled=false;$('#bCreate').disabled=false;$('#bJoin').disabled=false;srvConnect();renderResume();}
  else initRoom();
 }
