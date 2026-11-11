@@ -279,7 +279,7 @@ function finishRound(){
  const w=(max<0||ts.size>1)?'t':team(tops[0].s);
  G.rounds.push(w);G.win=w==='t'?-1:tops[0].s;G.ns=tops[0].s;
  if(w==='t')shout(-1,'CANGOU!');
- later(1700,afterRound);
+ later(1250,afterRound);
 }
 function afterRound(){
  G.past.push(G.table.map(p=>[p.s,p.c]));G.table=[];G.win=-1;G.round++;
@@ -293,7 +293,7 @@ function endHand(w,pts){
  if(w!==null)G.score[w]=Math.min(12,G.score[w]+pts);
  G.res={w:w===null?-1:w,p:w===null?0:pts};
  if(w!==null&&G.score[w]>=12){G.phase='over';G.wins[w]++;const t=TM.get(G);if(t)clearTimeout(t.h);}
- else{G.phase='end';later(3300,nextDeal);}
+ else{G.phase='end';later(2600,nextDeal);}
 }
 function resumeTimers(){
  if(G.phase==='show')later(900,afterRound);
@@ -311,7 +311,7 @@ function needBot(){
 }
 function scheduleBot(){
  const t=tm();if(t.b)return;const s=needBot();if(s<0)return;const g=G;
- t.b=setTimeout(()=>{G=g;t.b=0;const s2=needBot();if(s2<0)return;botMove(s2);onChange();},800+rnd(800));
+ t.b=setTimeout(()=>{G=g;t.b=0;const s2=needBot();if(s2<0)return;botMove(s2);onChange();},550+rnd(500));
 }
 function handPower(h){let s=0;for(const c of h){const x=str(c,G.vira);s+=x>=20?3+(x-20)*0.8:x>=8?1.6:x>=6?0.9:0.2;}return s;}
 function botEval(seat){let s=handPower(G.hands[seat]);const t=team(seat);for(const r of G.rounds){if(r===t)s+=2.3;else if(r!=='t')s-=2.3;}
@@ -470,8 +470,8 @@ function say(key,seat){
  else{const o=PHRASES[key];if(!o)return;txt=o[Math.floor(Math.random()*o.length)];}
  // voz de homem: usa uma voz masculina se o aparelho tiver; senão engrossa a voz disponível
  const male=!!maleVoice;
- const grave=[0,.06,-.05,.1][(seat>=0?seat:0)%4];
- pitch=call?(male?.75:.45):(male?.9:.6);pitch=Math.max(.1,pitch-grave);
+ const grave=[0,.08,-.06,.12][(seat>=0?seat:0)%4];
+ pitch=call?(male?.42:.2):(male?.55:.3);pitch=Math.max(.05,pitch-grave*.6);
  try{
   const u=new SpeechSynthesisUtterance(txt);u.lang='pt-BR';
   if(maleVoice)u.voice=maleVoice;else if(ptVoices.length)u.voice=ptVoices[0];
@@ -701,7 +701,7 @@ function renderDock(){
   }else if(P.tu===ms){msg=P.fe?'Mão de ferro: escolha uma carta às cegas':'Sua vez — escolha uma carta';
    if(!P.fe&&!P.m11&&P.va<12&&P.lr!==team(ms))ac.appendChild(mkBtn(RAISE[nextVal(P.va)],'hot',()=>doAction({t:'raise'})));
    if(P.rd>0&&!P.fe)ac.appendChild(mkBtn(COVER?'Encoberta ✓':'Encobrir','ghost'+(COVER?' on':''),()=>{COVER=!COVER;renderDock();renderCards();}));
-  }else msg='Vez de '+nm(P.tu)+'…';
+  }else msg=P._opt?'':'Vez de '+nm(P.tu)+'…';
   if(P.tu===ms&&!P.pd&&TOUCH&&!P.fe)msg='Sua vez — toque na carta e toque de novo para jogar';
   if(MODE==='client'&&!SRV&&outbox.length)msg+=' ⏳';
  }else if(P.ph==='show'){const w=P.rs[P.rs.length-1];msg=w==='t'?'Empatou a rodada!':(P.win>=0?nm(P.win)+(P.win===ms?' fez':' fez')+' a rodada':'');}
@@ -735,16 +735,35 @@ function effects(){
  if(P.hno!==lastHno){lastHno=P.hno;lastPlays=plays;sfx.deal();SEL=null;}
  else if(plays>lastPlays){sfx.flick();lastPlays=plays;}
  if(P.sh&&P.sh.id!==lastShout){lastShout=P.sh.id;const t=P.sh.t,s=P.sh.s;
-  if(s>=0){const g=seatGeo(relOf(s));const b=document.createElement('div');b.className='bubble';b.textContent=t;b.style.left=g.px+'px';b.style.top=(g.py-24)+'px';$('#bubbles').appendChild(b);setTimeout(()=>b.remove(),2500);}
-  if(s<0||/^(TRUCO|SEIS|NOVE|DOZE)/.test(t)){const f=$('#flash');f.textContent=t;f.classList.remove('go');void f.offsetWidth;f.classList.add('go');}
-  if(/^(TRUCO|SEIS|NOVE|DOZE)/.test(t))sfx.knock();
-  say(t,s);}
+  if(LOCALSHOUT&&LOCALSHOUT.t===t&&LOCALSHOUT.s===s&&Date.now()<LOCALSHOUT.until){LOCALSHOUT=null;}else showShout(t,s);}
  if((P.ph==='end'||P.ph==='over')&&P.res&&lastToast!==P.hno){lastToast=P.hno;const my=ms<0?0:team(ms),w=P.res.w;
   let txt=w<0?'Mão empatada — ninguém pontua':(ms<0?(is1v1()?'Jogador ':'Dupla ')+(w+1):is1v1()?(w===my?'Você':'Rival'):(w===my?'Nós':'Eles'))+' +'+P.res.p+(P.res.p>1?' pontos':' ponto');
   const t=$('#toast');t.innerHTML='<div class="panel"></div>';t.firstChild.textContent=txt;t.style.top=(L.felt.y+14)+'px';t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2600);
   if(w>=0&&ms>=0)(w===my?sfx.win:sfx.lose)();}
 }
 
+let LOCALSHOUT=null;
+function showShout(t,s){
+ if(s>=0){const g=seatGeo(relOf(s));const b=document.createElement('div');b.className='bubble';b.textContent=t;b.style.left=g.px+'px';b.style.top=(g.py-24)+'px';$('#bubbles').appendChild(b);setTimeout(()=>b.remove(),2500);}
+ if(s<0||/^(TRUCO|SEIS|NOVE|DOZE)/.test(t)){const f=$('#flash');f.textContent=t;f.classList.remove('go');void f.offsetWidth;f.classList.add('go');}
+ if(/^(TRUCO|SEIS|NOVE|DOZE)/.test(t))sfx.knock();
+ say(t,s);
+}
+// modo servidor: mostra a jogada na hora, sem esperar a resposta do servidor
+function optimistic(a){
+ if(!SRV||MODE!=='client'||!ST)return;
+ const ms=mySeat();if(ms<0)return;
+ const shout=t=>{LOCALSHOUT={t,s:ms,until:Date.now()+4000};showShout(t,ms);};
+ if(a.t==='play'&&ST.ph==='play'&&ST.tu===ms&&!ST.pd&&!(ST.m11&&!ST.m11.ok)){
+  const h=PRIV&&Array.isArray(PRIV.h)?PRIV.h.slice():null;const cnt=h?h.length:(PRIV&&PRIV.n)|0;if(a.i<0||a.i>=cnt)return;
+  const c=h?h.splice(a.i,1)[0]:'X';
+  const hn=ST.hn.slice();hn[ms]=Math.max(0,hn[ms]-1);
+  ST=Object.assign({},ST,{tb:(ST.tb||[]).concat([[ms,a.cov||!h?'X':c]]),tu:-1,hn,_opt:1});
+  PRIV=Object.assign({},PRIV,h?{h}:{n:cnt-1});renderAll();}
+ else if(a.t==='raise'&&!ST.pd)shout(RAISE[nextVal(ST.va)]);
+ else if(a.t==='resp'&&ST.pd&&ST.pd.r===ms)shout(a.a==='acc'?'Aceito!':a.a==='run'?'Corro!':RAISE[nextVal(ST.pd.to)]);
+ else if(a.t==='m11'&&ST.m11&&!ST.m11.ok)shout(a.a==='play'?'Vamos jogar!':'Corremos!');
+}
 function renderAll(){
  layout();
  if(MODE==='host'&&G){P=buildPub();const ms=G.seats.findIndex(s=>s&&!s.bot&&s.cid===CID);PR=ms>=0?privFor(ms):{};}
@@ -766,7 +785,7 @@ function doAction(a){
   if(a.t==='start'){if(G.phase==='wait'&&G.seats.every(Boolean)){G.score=[0,0];deal();onChange();}return;}
   if(a.t==='again'){if(G.phase==='over'){G.score=[0,0];G.dealer=(G.dealer+1)%NP();deal();onChange();}return;}
   const s=G.seats.findIndex(x=>x&&!x.bot&&x.cid===CID);if(act(s,a))onChange();
- }else if(MODE==='client'){if(SRV)srv({t:'act',a});else send(a);renderDock();}
+ }else if(MODE==='client'){if(SRV){optimistic(a);srv({t:'act',a});}else send(a);renderDock();}
 }
 
 

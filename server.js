@@ -230,7 +230,7 @@ function handle(c, a) {
       if (x.t === 'start') { if (G.phase === 'wait' && G.seats.every(Boolean)) { withG(tb, () => { G.score = [0, 0]; E.deal(); }); changed(tb); } return { ok: 1 }; }
       if (x.t === 'again') { if (G.phase === 'over') { clearTimeout(tb.againT); tb.againT = null; withG(tb, () => { G.score = [0, 0]; G.dealer = (G.dealer + 1) % G.seats.length; E.deal(); }); changed(tb); } return { ok: 1 }; }
       const ok = withG(tb, () => E.act(seat, x));
-      if (ok) changed(tb);
+      if (ok) changed(tb); else sendTo(c, pubFor(tb, c.cid)); // desfaz a jogada mostrada antes da hora
       return ok ? { ok: 1 } : { err: '' };
     }
   }
@@ -247,8 +247,11 @@ const MANIFEST = JSON.stringify({
 function readBody(req) {
   return new Promise((res, rej) => { let d = ''; req.on('data', ch => { d += ch; if (d.length > 8192) { rej(new Error('big')); req.destroy(); } }); req.on('end', () => res(d)); req.on('error', rej); });
 }
+const REDIRECT_TO = (process.env.REDIRECT_TO || '').replace(/\/$/, '');
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
+  // endereço antigo: manda todo mundo para o servidor novo (mais perto do Brasil)
+  if (REDIRECT_TO && !url.pathname.startsWith('/api/')) { res.writeHead(301, { location: REDIRECT_TO + req.url, 'cache-control': 'no-cache' }); return res.end(); }
   const p = url.pathname;
   try {
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
