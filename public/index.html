@@ -439,17 +439,21 @@ let VOICE=LS.get('truco_voz')!=='0',ptVoices=[],voiceUnlocked=false;
 // vozes masculinas conhecidas (Windows/Edge, Android, iPhone/Mac, Chrome)
 const MALE_RE=/daniel|antonio|ant[oô]nio|felipe|f[aá]bio|humberto|julio|j[uú]lio|donato|valerio|val[eé]rio|nicolau|macerio|leandro|giovanni|ricardo|eduardo|pt-br-x-ptd|pt-br-x-pte|ptd|pte|\bmale\b|masculin|homem|man\b/i;
 const FEMALE_RE=/maria|francisca|thalita|luciana|helo[ií]sa|camila|vit[oó]ria|yara|leila|brenda|elza|manuela|female|feminin|mulher|afs|ptc/i;
-let maleVoice=null;
-function loadVoices(){try{const all=speechSynthesis.getVoices();ptVoices=all.filter(v=>/^pt(-|_)BR/i.test(v.lang));if(!ptVoices.length)ptVoices=all.filter(v=>/^pt/i.test(v.lang));
- maleVoice=ptVoices.find(v=>MALE_RE.test(v.name)&&!FEMALE_RE.test(v.name))||null;}catch(e){}}
+let maleVoice=null,bestVoice=null;
+// vozes "naturais" (neurais) soam bem mais humanas: Edge/Windows "Online (Natural)", Mac/iPhone "Premium/Enhanced", Android "network"
+const NATURAL_RE=/natural|neural|online|premium|enhanced|aprimorad|network|wavenet|studio/i;
+function voiceScore(v){let sc=0;const m=MALE_RE.test(v.name)&&!FEMALE_RE.test(v.name);if(m)sc+=10;if(NATURAL_RE.test(v.name))sc+=6;if(/pt(-|_)BR/i.test(v.lang))sc+=3;if(v.localService===false)sc+=1;return sc;}
+function loadVoices(){try{const all=speechSynthesis.getVoices();ptVoices=all.filter(v=>/^pt/i.test(v.lang));
+ const ranked=ptVoices.slice().sort((x,y)=>voiceScore(y)-voiceScore(x));bestVoice=ranked[0]||null;
+ maleVoice=ranked.find(v=>MALE_RE.test(v.name)&&!FEMALE_RE.test(v.name))||null;}catch(e){}}
 if(window.speechSynthesis){loadVoices();try{speechSynthesis.onvoiceschanged=loadVoices;}catch(e){}}
 function unlockVoice(){if(voiceUnlocked||!window.speechSynthesis)return;voiceUnlocked=true;try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='pt-BR';speechSynthesis.speak(u);}catch(e){}}
-// gritos: texto, velocidade (menor = mais arrastado) e tom (menor = mais grave)
+// gritos curtos e firmes: [texto, velocidade]
 const CALLS={
- 'TRUCO!':[['Truuuuuco!',.62],['Truuuuuco!',.62],['Truuuuuco, ladrão!',.7],['Truuuuuco, marreco!',.7]],
- 'SEIS!':[['Seis!',.62],['Seis!',.62],['Seis, papudo!',.72]],
- 'NOVE!':[['Nove!',.62],['Nove!',.62],['Nove, que eu tenho!',.72]],
- 'DOZE!':[['Doze!',.62],['Doze, valendo o jogo!',.72]]
+ 'TRUCO!':[['TRUCO!',1],['TRUCO!',1],['TRUCO!',1],['TRUCO, ladrão!',1.05],['TRUCO, marreco!',1.05]],
+ 'SEIS!':[['SEIS!',.98],['SEIS!',.98],['SEIS, papudo!',1.05]],
+ 'NOVE!':[['NOVE!',.98],['NOVE!',.98],['NOVE, que eu tenho!',1.05]],
+ 'DOZE!':[['DOZE!',.98],['DOZE, valendo o jogo!',1.05]]
 };
 const PHRASES={
  'Aceito!':['Cai dentro!','Aceito!','Desce!','Manda que eu aguento!'],
@@ -464,22 +468,21 @@ const PHRASES={
 function say(key,seat){
  if(!VOICE||!SOUND||!window.speechSynthesis)return;
  if(!ptVoices.length)loadVoices();
- let txt,rate=1.02,pitch;
+ let txt,rate=1.05;
  const call=CALLS[key];
  if(call){const c=call[Math.floor(Math.random()*call.length)];txt=c[0];rate=c[1];}
  else{const o=PHRASES[key];if(!o)return;txt=o[Math.floor(Math.random()*o.length)];}
- // voz de homem: usa uma voz masculina se o aparelho tiver; senão engrossa a voz disponível
- const male=!!maleVoice;
- const grave=[0,.08,-.06,.12][(seat>=0?seat:0)%4];
- pitch=call?(male?.42:.2):(male?.55:.3);pitch=Math.max(.05,pitch-grave*.6);
+ // tom quase natural: baixar demais o tom deixa a voz sintética tremida e robótica
+ const v=maleVoice||bestVoice;
+ let pitch=maleVoice?(call?.88:.95):(call?.7:.78);
+ pitch-=[0,.03,-.02,.05][(seat>=0?seat:0)%4];
  try{
-  const u=new SpeechSynthesisUtterance(txt);u.lang='pt-BR';
-  if(maleVoice)u.voice=maleVoice;else if(ptVoices.length)u.voice=ptVoices[0];
+  const u=new SpeechSynthesisUtterance(txt);u.lang='pt-BR';if(v)u.voice=v;
   u.pitch=pitch;u.rate=rate;u.volume=1;
   speechSynthesis.cancel();speechSynthesis.speak(u);
  }catch(e){}
 }
-const sfx={flick(){noise(.07,2600,.5);},deal(){for(let i=0;i<8;i++)noise(.05,2400,.35,i*.07);},knock(){tone(95,.25,.6);noise(.06,600,.6);tone(80,.25,.5,.16);noise(.06,600,.5,.16);},win(){tone(660,.25,.18);tone(880,.35,.18,.12);tone(1320,.5,.12,.24);},lose(){tone(300,.3,.15);tone(220,.45,.15,.15);}};
+const sfx={flick(){noise(.07,2600,.5);},deal(){for(let i=0;i<8;i++)noise(.05,2400,.35,i*.07);},knock(){tone(70,.35,.75,0,'sine');tone(140,.12,.25,0,'triangle');noise(.05,900,.7);tone(62,.35,.65,.17,'sine');noise(.05,900,.6,.17);},win(){tone(660,.25,.18);tone(880,.35,.18,.12);tone(1320,.5,.12,.24);},lose(){tone(300,.3,.15);tone(220,.45,.15,.15);}};
 
 // ================= net state
 let MODE=null; // 'host' | 'client'
