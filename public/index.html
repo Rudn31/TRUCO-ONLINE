@@ -172,6 +172,7 @@ details.rules li{margin:3px 0}
   <button id="bCreate" class="btn ghost" disabled>Criar mesa privada (com código)</button>
   <div class="join"><input id="code" maxlength="6" placeholder="CÓDIGO" autocomplete="off"><button id="bJoin" class="btn ghost" disabled>Entrar</button></div>
   <button id="bBots" class="btn ghost">Jogar contra o computador</button>
+  <a id="bApk" class="btn ghost hidden" href="https://truco-online-vpr9.onrender.com/apk" style="display:block;text-decoration:none;box-sizing:border-box">📲 Baixar app Android (joga sem internet)</a>
   <div id="resume"></div>
   <div id="tables"></div>
   <div id="netnote" class="note">Conectando ao modo online…</div>
@@ -1006,6 +1007,7 @@ async function initRoom(){
  if(room){note.textContent='Online ✓ — crie uma mesa e mande o código aos amigos, ou entre numa mesa.';$('#bCreate').disabled=false;$('#bJoin').disabled=false;room.onPeers(ch=>{renderTables(ch);queueTick();},()=>{});renderResume();$('#bQuick').disabled=false;}
  else{note.textContent='O modo online não está disponível nesta visualização. Você ainda pode jogar contra o computador.';}
 }
+if(!IS_APP&&!/iPhone|iPad|iPod/i.test(navigator.userAgent))$('#bApk').classList.remove('hidden');
 $('#nick').value=NAME;setMode(MODEN);$('#m4').onclick=()=>setMode(4);$('#m2').onclick=()=>setMode(2);
 $('#bCreate').onclick=()=>{sfxInit();if(SRV){nameOk();srv({t:'create',n:MODEN});return;}if(room)startHost(genCode());};
 $('#bQuick').onclick=()=>{sfxInit();if(SRV){nameOk();srv({t:'queue',n:MODEN});QUEUE={t:Date.now(),n:MODEN};showHome(false);$('#queue').classList.remove('hidden');renderQueue([{c:CID,t:Date.now(),n:NAME}],0,MODEN);return;}startQueue();};

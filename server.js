@@ -249,6 +249,7 @@ const MANIFEST = JSON.stringify({
 function readBody(req, limit = 8192) {
   return new Promise((res, rej) => { let d = ''; req.on('data', ch => { d += ch; if (d.length > limit) { rej(new Error('big')); req.destroy(); } }); req.on('end', () => res(d)); req.on('error', rej); });
 }
+const APK_URL = 'https://github.com/Rudn31/TRUCO-ONLINE/releases/download/apk/truco-paulista.apk';
 const REDIRECT_TO = (process.env.REDIRECT_TO || '').replace(/\/$/, '');
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -265,6 +266,10 @@ const server = http.createServer(async (req, res) => {
   try {
     if (req.method === 'GET' && (p === '/' || p === '/index.html')) {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-cache' }); return res.end(HTML);
+    }
+    // link direto para baixar o app Android (sempre a versão mais nova, publicada pelo GitHub Actions)
+    if (p === '/apk' || p === '/app' || p === '/baixar' || p === '/truco.apk' || p === '/truco-paulista.apk') {
+      res.writeHead(302, { location: APK_URL, 'cache-control': 'no-cache' }); return res.end();
     }
     if (p === '/api/ping') { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify({ truco: 1, online: [...clients.values()].filter(c => c.conns.size).length, mesas: tables.size })); }
     if (p === '/manifest.webmanifest') { res.writeHead(200, { 'content-type': 'application/manifest+json' }); return res.end(MANIFEST); }
