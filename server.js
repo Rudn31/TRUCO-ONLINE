@@ -27,9 +27,10 @@ let queue = [];            // [{cid,t,n}] em ordem de chegada (n = 2 para 1x1, 4
 
 const CID_RE = /^c[a-z0-9]{4,12}$/;
 const CODE_RE = /^[a-z0-9]{4,6}$/;
+const VOICE_KEYS = ['TRUCO', 'SEIS', 'NOVE', 'DOZE', 'ACEITO', 'CORRO'];
 const cleanName = n => (typeof n === 'string' ? n.replace(/[^\p{L}\p{N} ._'-]/gu, '').trim().slice(0, 14) : '');
 function genCode() { const a = 'abcdefghjkmnpqrstuvwxyz23456789'; let s; do { s = ''; for (let i = 0; i < 4; i++) s += a[nodeCrypto.randomInt(a.length)]; } while (tables.has(s)); return s; }
-function client(cid) { let c = clients.get(cid); if (!c) { c = { cid, nm: 'Jogador', conns: new Set(), table: null, offSince: Date.now() }; clients.set(cid, c); } return c; }
+function client(cid) { let c = clients.get(cid); if (!c) { c = { cid, nm: 'Jogador', conns: new Set(), table: null, offSince: Date.now(), voices: {}, vg: 0 }; clients.set(cid, c); } return c; }
 const online = cid => { const c = clients.get(cid); return !!c && c.conns.size > 0; };
 function sendTo(c, obj) { const s = 'data: ' + JSON.stringify(obj) + '\n\n'; for (const r of c.conns) { try { r.write(s); } catch (e) {} } }
 
@@ -51,7 +52,7 @@ function pubFor(tb, cid) {
   const seat = G.seats.findIndex(s => s && !s.bot && s.cid === cid);
   const st = {
     v: 1, code: G.code, ph: G.phase, qk: tb.qk ? 1 : 0,
-    seats: G.seats.map((s, i) => s ? { n: s.n, b: s.bot ? 1 : 0, c: i === seat ? cid : '', on: (s.bot || online(s.cid)) ? 1 : 0 } : 0),
+    seats: G.seats.map((s, i) => s ? { n: s.n, b: s.bot ? 1 : 0, c: i === seat ? cid : '', on: (s.bot || online(s.cid)) ? 1 : 0, vz: s.bot ? 0 : voiceMap(s.cid) } : 0),
     sc: G.score, wn: G.wins, dl: G.dealer, vi: G.vira, tu: G.turn, rd: G.round,
     tb: G.table.map(p => [p.s, p.c]), pa: G.past, rs: G.rounds, va: G.value, lr: G.lastRaise,
     pd: G.pending, m11: G.m11, fe: G.ferro, sh: G.shout, res: G.res,
@@ -64,6 +65,7 @@ function pubFor(tb, cid) {
   }
   return { t: 'st', st, pv };
 }
+function voiceMap(cid) { const c = clients.get(cid); if (!c) return 0; const o = {}; let any = 0; for (const k in c.voices) { o[k] = c.voices[k].v + '_' + c.vg; any = 1; } return any ? o : 0; }
 function members(tb) { const out = []; for (const c of clients.values()) if (c.table === tb.code) out.push(c); return out; }
 function changed(tb) {
   if (!tables.has(tb.code)) return;
@@ -244,8 +246,8 @@ const MANIFEST = JSON.stringify({
   orientation: 'any', background_color: '#120b06', theme_color: '#120b06', lang: 'pt-BR',
   icons: [{ src: '/icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any maskable' }]
 });
-function readBody(req) {
-  return new Promise((res, rej) => { let d = ''; req.on('data', ch => { d += ch; if (d.length > 8192) { rej(new Error('big')); req.destroy(); } }); req.on('end', () => res(d)); req.on('error', rej); });
+function readBody(req, limit = 8192) {
+  return new Promise((res, rej) => { let d = ''; req.on('data', ch => { d += ch; if (d.length > limit) { rej(new Error('big')); req.destroy(); } }); req.on('end', () => res(d)); req.on('error', rej); });
 }
 const REDIRECT_TO = (process.env.REDIRECT_TO || '').replace(/\/$/, '');
 const server = http.createServer(async (req, res) => {
@@ -276,6 +278,41 @@ const server = http.createServer(async (req, res) => {
         if (!c.conns.size) { c.offSince = Date.now(); const t = c.table && tables.get(c.table); if (t) changed(t); lobbyDirty = true; }
       });
       return;
+    }
+    // gritos gravados pelos jogadores
+    if (p === '/api/voz' && req.method === 'POST') {
+      const body = JSON.parse(await readBody(req, 200000) || '{}');
+      const json = o => { res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(o)); };
+      if (typeof body.cid !== 'string' || !CID_RE.test(body.cid)) return json({ err: 'id' });
+      const c = client(body.cid);
+      let touched = false;
+      if (typeof body.g === 'number') { const g = Math.max(0, Math.min(30, Math.round(body.g))); if (g !== c.vg) { c.vg = g; touched = true; } }
+      const k = body.k;
+      if (k !== undefined) {
+        if (!VOICE_KEYS.includes(k)) return json({ err: 'grito' });
+        if (body.check) return json({ have: !!(c.voices[k] && c.voices[k].v === body.v) });
+        if (body.del) { delete c.voices[k]; touched = true; }
+        else {
+          const mime = String(body.mime || '').split(';')[0];
+          if (!/^audio\/[a-z0-9.+-]{2,20}$/.test(mime) || typeof body.data !== 'string') return json({ err: 'formato' });
+          const buf = Buffer.from(body.data, 'base64');
+          if (buf.length < 500 || buf.length > 120000) return json({ err: 'tamanho' });
+          const v = String(body.v || 'v').replace(/[^a-z0-9]/gi, '').slice(0, 16) || 'v';
+          c.voices[k] = { buf, mime, v, o: Math.max(0, Math.min(2, +body.o || 0)), n: Math.max(.2, Math.min(4, +body.n || 1)) };
+          touched = true;
+        }
+      }
+      if (touched) { const tb = c.table && tables.get(c.table); if (tb) changed(tb); }
+      return json({ ok: 1 });
+    }
+    if (p === '/api/voz' && req.method === 'GET') {
+      const tb = tables.get(url.searchParams.get('code') || '');
+      const st = tb && tb.G.seats[+url.searchParams.get('s')];
+      const c = st && !st.bot && clients.get(st.cid);
+      const vo = c && c.voices[url.searchParams.get('k')];
+      if (!vo) { res.writeHead(404); return res.end(); }
+      res.writeHead(200, { 'content-type': vo.mime, 'content-length': vo.buf.length, 'cache-control': 'public, max-age=86400', 'x-off': String(vo.o), 'x-norm': String(vo.n), 'x-g': String(c.vg) });
+      return res.end(vo.buf);
     }
     if (p === '/api/act' && req.method === 'POST') {
       const body = JSON.parse(await readBody(req) || '{}');

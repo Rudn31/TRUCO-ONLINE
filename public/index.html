@@ -136,6 +136,7 @@ html,body{margin:0;height:100%;overflow:hidden;touch-action:manipulation;overscr
 .dots::after{content:'';animation:dots 1.4s steps(4) infinite}
 @keyframes dots{0%{content:''}25%{content:'.'}50%{content:'..'}75%{content:'...'}}
 .modes{display:flex;gap:8px;margin-top:12px}.mode{flex:1;font:800 20px 'Playfair Display',serif;color:#f5ecd9;background:rgba(0,0,0,.4);border:1px solid rgba(231,196,106,.3);border-radius:12px;padding:8px 6px;cursor:pointer}.mode small{display:block;font:600 11px Inter,sans-serif;opacity:.75;margin-top:2px}.mode.on{background:linear-gradient(rgba(231,196,106,.3),rgba(231,196,106,.12));border-color:#ffd56a;color:#ffe7a6;box-shadow:0 0 14px rgba(255,213,106,.25)}
+.vrow{display:flex;align-items:center;gap:6px;background:rgba(0,0,0,.35);border:1px solid rgba(231,196,106,.18);border-radius:10px;padding:6px 8px;margin:5px 0}.vrow .vl{flex:1;text-align:left;font-weight:800;font-family:'Playfair Display',serif;font-size:16px}.vrow .vl small{display:block;font:600 11px Inter,sans-serif;opacity:.6}.vrow .btn{width:auto;margin:0}.vrow .btn.rec{background:linear-gradient(#ff5a3c,#b5120a);color:#fff;animation:pulse 1s infinite}
 details.rules{text-align:left;margin-top:12px;font-size:12.5px;background:rgba(0,0,0,.3);border-radius:10px;padding:8px 12px}
 details.rules summary{cursor:pointer;font-weight:700}
 details.rules li{margin:3px 0}
@@ -172,6 +173,7 @@ details.rules li{margin:3px 0}
   <button id="bCreate" class="btn ghost" disabled>Criar mesa privada (com código)</button>
   <div class="join"><input id="code" maxlength="6" placeholder="CÓDIGO" autocomplete="off"><button id="bJoin" class="btn ghost" disabled>Entrar</button></div>
   <button id="bBots" class="btn ghost">Jogar contra o computador</button>
+  <button id="bVoz" class="btn ghost hidden">🎙️ Gravar meus gritos</button>
   <div id="resume"></div>
   <div id="tables"></div>
   <div id="netnote" class="note">Conectando ao modo online…</div>
@@ -199,6 +201,17 @@ details.rules li{margin:3px 0}
   <div class="note" id="qtime"></div>
   <button id="qBots" class="btn ghost hidden">Começar já com bots</button>
   <button id="qLeave" class="btn red">Sair da fila</button>
+ </div>
+</div>
+<div id="vozbox" class="overlay hidden">
+ <div class="panel home">
+  <h2>🎙️ Seus gritos</h2>
+  <p>Grave com a sua voz — todo mundo na mesa vai ouvir <b>você</b> gritando. Aperte <b>Gravar</b>, grite com vontade e pronto (até 2,5 s).</p>
+  <div id="vozlist"></div>
+  <label for="vozgrave" style="margin-top:12px">Engrossar a voz: <b id="vozgv"></b></label>
+  <input id="vozgrave" type="range" min="0" max="30" step="1" style="width:100%;padding:0;accent-color:#e0a526">
+  <div class="note" id="vozmsg"></div>
+  <button class="btn" id="vozok">Pronto</button>
  </div>
 </div>
 <script>
@@ -684,6 +697,7 @@ function renderTop(){
  const t=$('#topright');t.innerHTML='';if(!MODE)return;
  if((MODE==='host'&&G&&G.code!=='local'||MODE==='client')&&L.W>=560){const c=document.createElement('div');c.className='chip';c.innerHTML='MESA <b></b>';c.querySelector('b').textContent=(MODE==='host'?G.code:JOIN).toUpperCase();t.appendChild(c);}
  if(document.documentElement.requestFullscreen&&TOUCH)t.appendChild(mkBtn('⛶','mini ghost',()=>{try{document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen({navigationUI:'hide'}).then(()=>{try{screen.orientation.lock&&screen.orientation.lock('portrait').catch(()=>{})}catch(e){}}).catch(()=>{});}catch(e){}}));
+ if(SRV)t.appendChild(mkBtn('🎙️','mini ghost',openVozBox));
  t.appendChild(mkBtn(VOICE?'🗣️ Voz':'🤐 Voz','mini ghost'+(VOICE?' on':''),()=>{VOICE=!VOICE;LS.set('truco_voz',VOICE?'1':'0');if(VOICE){unlockVoice();say('TRUCO!',0);}else try{speechSynthesis.cancel();}catch(e){}renderTop();}));
  t.appendChild(mkBtn(SOUND?'🔊':'🔈','mini ghost',()=>{SOUND=!SOUND;LS.set('truco_snd',SOUND?'1':'0');if(SOUND)sfxInit();renderTop();}));
  t.appendChild(mkBtn('Sair','mini ghost',leave));
@@ -750,7 +764,7 @@ function showShout(t,s){
  if(s>=0){const g=seatGeo(relOf(s));const b=document.createElement('div');b.className='bubble';b.textContent=t;b.style.left=g.px+'px';b.style.top=(g.py-24)+'px';$('#bubbles').appendChild(b);setTimeout(()=>b.remove(),2500);}
  if(s<0||/^(TRUCO|SEIS|NOVE|DOZE)/.test(t)){const f=$('#flash');f.textContent=t;f.classList.remove('go');void f.offsetWidth;f.classList.add('go');}
  if(/^(TRUCO|SEIS|NOVE|DOZE)/.test(t))sfx.knock();
- say(t,s);
+ voice(t,s);
 }
 // modo servidor: mostra a jogada na hora, sem esperar a resposta do servidor
 function optimistic(a){
@@ -877,7 +891,7 @@ function setNet(ok){$('#netbad').classList.toggle('hidden',ok);}
 function srvConnect(){
  try{if(ES)ES.close();}catch(e){}
  ES=new EventSource('/api/events?cid='+encodeURIComponent(CID)+'&nm='+encodeURIComponent(NAME||''));
- ES.onopen=()=>{setNet(true);lastBeat=Date.now();};
+ ES.onopen=()=>{setNet(true);lastBeat=Date.now();syncVoices();};
  ES.onerror=()=>{setNet(false);};
  ES.onmessage=e=>{lastBeat=Date.now();let m;try{m=JSON.parse(e.data);}catch(x){return;}srvMsg(m);};
 }
@@ -896,7 +910,7 @@ function srvMsg(m){
  if(m.t==='ping')return;
  if(m.t==='st'&&m.st){
   if(MODE!=='client'||JOIN!==m.st.code){if(MODE==='host'){clearTimers();G=null;}for(const[,e]of els)e.remove();els.clear();MODE='client';JOIN=m.st.code;firstView=true;QUEUE=null;hideQueue();showHome(false);keepAwake();}
-  ST=m.st;PRIV=m.pv||{};hostSeen=true;renderAll();return;}
+  ST=m.st;PRIV=m.pv||{};hostSeen=true;renderAll();prefetchVoices();return;}
  if(m.t==='lobby'){SLOBBY=m;
   if(MODE==='client'&&!m.table){MODE=null;ST=null;PRIV=null;JOIN=null;for(const[,e]of els)e.remove();els.clear();renderAll();if(m.pos<0)showHome(true);}
   SLOBBY=m;const n=MODEN===2?(m.q2|0):(m.q4|0);$('#qcount').textContent=(n?('👥 '+n+' na fila '+(MODEN===2?'1x1':'2x2')+' agora'):('Fila '+(MODEN===2?'1x1':'2x2')+' vazia — seja o primeiro!'))+' · '+m.online+' online';
@@ -916,9 +930,91 @@ function addManifest(){
 async function boot(){
  SRV=await detectServer();
  if(SRV){addManifest();$('#netnote').textContent='Servidor online ✓ — jogue com qualquer pessoa pelo celular ou computador.';
-  $('#bQuick').disabled=false;$('#bCreate').disabled=false;$('#bJoin').disabled=false;srvConnect();renderResume();}
+  $('#bQuick').disabled=false;$('#bCreate').disabled=false;$('#bJoin').disabled=false;$('#bVoz').classList.remove('hidden');srvConnect();renderResume();}
  else initRoom();
 }
+
+
+// ================= gritos gravados pelos jogadores
+const VKEYS=[['TRUCO','TRUCO!'],['SEIS','SEIS!'],['NOVE','NOVE!'],['DOZE','DOZE!'],['ACEITO','ACEITO! / CAI DENTRO!'],['CORRO','CORRO!']];
+const VKEY={'TRUCO!':'TRUCO','SEIS!':'SEIS','NOVE!':'NOVE','DOZE!':'DOZE','Aceito!':'ACEITO','Corro!':'CORRO'};
+let myVoices={};try{myVoices=JSON.parse(LS.get('truco_vozes')||'{}')||{};}catch(e){myVoices={};}
+let GRAVE=+(LS.get('truco_grave')||12);
+function ensureAC(){if(!AC){try{AC=new (window.AudioContext||window.webkitAudioContext)();}catch(e){}}if(AC&&AC.state==='suspended')AC.resume().catch(()=>{});return AC;}
+function getReverb(){if(getReverb.c)return getReverb.c;const len=Math.floor(AC.sampleRate*.7),ir=AC.createBuffer(2,len,AC.sampleRate);for(let ch=0;ch<2;ch++){const d=ir.getChannelData(ch);for(let i=0;i<len;i++)d[i]=(Math.random()*2-1)*Math.pow(1-i/len,2.8);}const c=AC.createConvolver();c.buffer=ir;c.connect(AC.destination);getReverb.c=c;return c;}
+// efeito "grito de bar": voz mais grossa, comprimida (forte), com corpo nos graves e um eco de salão
+function playBuf(buf,off,g,n){
+ if(!ensureAC())return;
+ const src=AC.createBufferSource();src.buffer=buf;src.playbackRate.value=Math.max(.68,1-(g||0)/100);
+ const lo=AC.createBiquadFilter();lo.type='lowshelf';lo.frequency.value=200;lo.gain.value=5;
+ const pres=AC.createBiquadFilter();pres.type='peaking';pres.frequency.value=2500;pres.Q.value=.8;pres.gain.value=3;
+ const comp=AC.createDynamicsCompressor();comp.threshold.value=-26;comp.knee.value=6;comp.ratio.value=8;comp.attack.value=.002;comp.release.value=.12;
+ const out=AC.createGain();out.gain.value=Math.min(4,1.5*(n||1));
+ src.connect(lo).connect(pres).connect(comp).connect(out).connect(AC.destination);
+ const send=AC.createGain();send.gain.value=.16;out.connect(send).connect(getReverb());
+ src.start(0,Math.max(0,off||0));
+}
+const vozCache=new Map(),mineCache=new Map();
+function fetchVoice(url){let p=vozCache.get(url);if(!p){p=(async()=>{const r=await fetch(url);if(!r.ok)throw new Error('voz');const off=+(r.headers.get('x-off')||0),n=+(r.headers.get('x-norm')||1),g=+(r.headers.get('x-g')||0);const ab=await r.arrayBuffer();if(!ensureAC())throw new Error('audio');const buf=await AC.decodeAudioData(ab);return{buf,off,n,g};})();vozCache.set(url,p);p.catch(()=>vozCache.delete(url));if(vozCache.size>60)vozCache.delete(vozCache.keys().next().value);}return p;}
+async function mineBuf(k){const m=myVoices[k];if(!m)throw new Error('sem');let p=mineCache.get(k+m.v);if(!p){p=(async()=>{const ab=await (await fetch(m.d)).arrayBuffer();ensureAC();return await AC.decodeAudioData(ab);})();mineCache.set(k+m.v,p);p.catch(()=>mineCache.delete(k+m.v));}return p;}
+async function playMine(k){const m=myVoices[k];const buf=await mineBuf(k);playBuf(buf,m.o,GRAVE,m.n);}
+function voiceUrl(s,k){const st=P&&P.seats&&P.seats[s];if(!SRV||!st||!st.vz||!st.vz[k])return null;return '/api/voz?code='+encodeURIComponent(P.code)+'&s='+s+'&k='+k+'&v='+encodeURIComponent(st.vz[k]);}
+function voice(t,s){
+ if(!VOICE||!SOUND)return;
+ const k=VKEY[t];
+ if(k&&s>=0&&s===mySeat()&&myVoices[k]){playMine(k).catch(()=>say(t,s));return;}
+ const url=k&&s>=0?voiceUrl(s,k):null;
+ if(url){fetchVoice(url).then(v=>playBuf(v.buf,v.off,v.g,v.n)).catch(()=>say(t,s));return;}
+ say(t,s);
+}
+function prefetchVoices(){if(!SRV||!AC||!P||!Array.isArray(P.seats))return;P.seats.forEach((st,s)=>{if(st&&st.vz&&s!==mySeat())for(const k in st.vz){const u=voiceUrl(s,k);if(u)fetchVoice(u).catch(()=>{});}});}
+// gravação
+let rec=null;
+function vozMsg(t){$('#vozmsg').textContent=t||'';}
+function analyze(buf){const d=buf.getChannelData(0);let peak=0;for(let i=0;i<d.length;i++){const a=Math.abs(d[i]);if(a>peak)peak=a;}const th=peak*.12;let st=0;for(let i=0;i<d.length;i++)if(Math.abs(d[i])>th){st=Math.max(0,i/buf.sampleRate-.03);break;}return{o:+st.toFixed(3),n:+Math.min(4,.95/Math.max(peak,.05)).toFixed(2)};}
+async function startRec(k){
+ if(rec){stopRec();return;}
+ ensureAC();vozMsg('');
+ if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia||!window.MediaRecorder){vozMsg('Este navegador não permite gravar áudio.');return;}
+ try{
+  const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:true}});
+  const mt=['audio/webm;codecs=opus','audio/webm','audio/mp4','audio/ogg;codecs=opus'].find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m))||'';
+  const mr=new MediaRecorder(stream,mt?{mimeType:mt,audioBitsPerSecond:64000}:{});const chunks=[];
+  mr.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};
+  mr.onstop=async()=>{stream.getTracks().forEach(t=>t.stop());const blob=new Blob(chunks,{type:(mr.mimeType||mt||'audio/webm').split(';')[0]});rec=null;await saveVoice(k,blob);renderVozBox();};
+  mr.start();rec={mr,k,t:setTimeout(stopRec,2500)};vozMsg('🔴 Gravando… GRITE!');renderVozBox();
+ }catch(e){rec=null;vozMsg('Não consegui usar o microfone. Permita o acesso ao microfone para este site.');renderVozBox();}
+}
+function stopRec(){if(!rec)return;clearTimeout(rec.t);try{rec.mr.stop();}catch(e){}}
+async function saveVoice(k,blob){
+ if(blob.size<800){vozMsg('Não captei som. Tente de novo mais perto do microfone.');return;}
+ if(blob.size>110000){vozMsg('Gravação grande demais, tente mais curta.');return;}
+ const d=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(blob);});
+ let a={o:0,n:1};try{a=analyze(await AC.decodeAudioData(await blob.arrayBuffer()));}catch(e){}
+ myVoices[k]={d,o:a.o,n:a.n,v:'v'+Date.now().toString(36),m:blob.type||'audio/webm'};persistVoices();
+ vozMsg('✅ Gravado! Toque ▶ para ouvir.');playMine(k).catch(()=>{});uploadVoice(k);
+}
+function persistVoices(){try{localStorage.setItem('truco_vozes',JSON.stringify(myVoices));}catch(e){vozMsg('Não deu para salvar no aparelho (sem espaço).');}}
+async function vozPost(body){try{const r=await fetch('/api/voz',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(Object.assign({cid:CID},body))});return await r.json();}catch(e){return null;}}
+async function uploadVoice(k){if(!SRV)return;const m=myVoices[k];if(!m)return vozPost({k,del:1});return vozPost({k,v:m.v,o:m.o,n:m.n,g:GRAVE,mime:m.m,data:m.d.slice(m.d.indexOf(',')+1)});}
+async function syncVoices(){if(!SRV)return;await vozPost({g:GRAVE});for(const[k]of VKEYS){const m=myVoices[k];if(!m)continue;const r=await vozPost({k,v:m.v,check:1});if(!r||!r.have)await uploadVoice(k);}}
+function renderVozBox(){
+ const box=$('#vozlist');box.innerHTML='';
+ for(const[k,label]of VKEYS){const m=myVoices[k],recording=rec&&rec.k===k;
+  const r=document.createElement('div');r.className='vrow';
+  const l=document.createElement('div');l.className='vl';l.textContent=label;const sm=document.createElement('small');sm.textContent=m?'gravado ✓':'voz do computador';l.appendChild(sm);r.appendChild(l);
+  const b=mkBtn(recording?'■ Parar':'● Gravar','mini'+(recording?' rec':''),()=>startRec(k));if(rec&&!recording)b.disabled=true;r.appendChild(b);
+  if(m){r.appendChild(mkBtn('▶','mini ghost',()=>{ensureAC();playMine(k).catch(()=>vozMsg('Não consegui tocar.'));}));
+   r.appendChild(mkBtn('🗑','mini ghost',()=>{delete myVoices[k];persistVoices();uploadVoice(k);renderVozBox();}));}
+  else r.appendChild(mkBtn('▶','mini ghost',()=>{const was=VOICE;VOICE=true;say(label.split(' ')[0].replace(/^ACEITO!$/,'Aceito!').replace(/^CORRO!$/,'Corro!'),0);VOICE=was;}));
+  box.appendChild(r);}
+ $('#vozgrave').value=GRAVE;$('#vozgv').textContent=GRAVE?(GRAVE+'%'):'natural';
+}
+function openVozBox(){$('#vozbox').classList.remove('hidden');renderVozBox();}
+$('#vozok').onclick=()=>{stopRec();$('#vozbox').classList.add('hidden');};
+$('#vozgrave').oninput=e=>{GRAVE=+e.target.value;LS.set('truco_grave',String(GRAVE));$('#vozgv').textContent=GRAVE?(GRAVE+'%'):'natural';};
+$('#vozgrave').onchange=()=>{vozPost({g:GRAVE});const k=VKEYS.find(([k])=>myVoices[k]);if(k)playMine(k[0]).catch(()=>{});};
+$('#bVoz').onclick=()=>{sfxInit();openVozBox();};
 
 // ================= home / lobby
 function nameOk(){let n=cleanName($('#nick').value);if(!n)n='Jogador'+(1+rnd(99));NAME=n;$('#nick').value=n;LS.set('truco_name',n);}
